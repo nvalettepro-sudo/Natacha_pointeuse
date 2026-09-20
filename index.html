@@ -489,12 +489,12 @@
     transition:border-color .2s ease, color .2s ease;
   }
   .ghost-btn:hover{ border-color:var(--accent-gold); color:var(--accent-gold); }
-  footer .tip{
+  footer .version{
     color:var(--ink-muted);
-    font-size:.75rem;
-    line-height:1.5;
-    max-width:340px;
+    font-size:.72rem;
+    letter-spacing:.04em;
     margin:0 auto;
+    opacity:.75;
   }
   .overlay{
     position:fixed;
@@ -658,7 +658,7 @@
       <button class="ghost-btn" id="importBtn">Restaurer une sauvegarde</button>
       <input type="file" id="importInput" accept="application/json,.json" style="display:none">
     </div>
-    <p class="tip">Astuce&nbsp;: ajoute cette page à l'écran d'accueil de ton téléphone pour un accès rapide et un stockage plus fiable.</p>
+    <p class="version" id="appVersion"></p>
   </footer>
 
 </div>
@@ -679,10 +679,14 @@
 (function(){
   "use strict";
 
+  // Seul endroit a modifier pour changer le numero affiche en bas de page.
+  const APP_VERSION = "1.1";
   const STORAGE_KEY = "natacha_pool_heures_v1";
   let entries = [];
   let storageOK = true;
   let mode = "horaire";
+
+  document.getElementById("appVersion").textContent = "Version " + APP_VERSION;
 
   // ---------- stockage ----------
   function loadEntries(){

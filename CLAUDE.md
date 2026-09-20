@@ -56,6 +56,13 @@ Solde du pool = somme de `heures` sur toutes les entrées.
   doit repartir de cette contrainte (mesurer/estimer la hauteur avant d'ajouter
   des éléments visibles par défaut).
 
+## Numéro de version
+
+Affiché en pied de page, piloté par la constante `APP_VERSION` en tête du
+script (seul endroit à modifier). Sert à vérifier d'un coup d'œil que le
+téléphone de Natacha ne sert pas une version en cache. **À incrémenter à
+chaque changement fonctionnel déployé.**
+
 ## Persistance
 
 100% côté client (`localStorage`), pas de backend. Données propres à l'origine
