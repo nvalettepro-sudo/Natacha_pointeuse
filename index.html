@@ -402,6 +402,19 @@
     align-items:center;
     gap:.8rem;
     margin-bottom:.6rem;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    transition:background .2s ease, box-shadow .2s ease, transform .1s ease;
+  }
+  .entry:active{ transform:scale(.99); }
+  .entry:focus-visible{ outline:2px solid var(--accent-gold); outline-offset:2px; }
+  .entry.editing{
+    background:var(--accent-add-soft);
+    box-shadow:0 0 0 2px var(--accent-add), var(--shadow);
+  }
+  .entry.prise.editing{
+    background:var(--accent-take-soft);
+    box-shadow:0 0 0 2px var(--accent-take), var(--shadow);
   }
   .entry .amount{
     font-family:var(--font-serif);
@@ -439,6 +452,11 @@
     transition:background .2s ease, color .2s ease;
   }
   .entry .del-btn:hover{ background:var(--danger-soft); color:var(--danger); }
+  .history-hint{
+    font-size:.78rem;
+    color:var(--ink-muted);
+    margin:0 0 .7rem .3rem;
+  }
   .empty-state{
     text-align:center;
     color:var(--ink-muted);
@@ -630,6 +648,7 @@
       <button type="button" data-view="semaine" id="viewSemaine">Par semaine</button>
       <button type="button" data-view="mois" id="viewMois">Par mois</button>
     </div>
+    <p class="history-hint" id="historyHint" style="display:none">Touche une journée pour corriger ses horaires.</p>
     <div id="historyList"></div>
   </section>
 
@@ -795,6 +814,7 @@
 
   // ---------- rendu ----------
   let historyView = "journal";
+  let editingId = null;
   function computeBalance(){
     return entries.reduce((sum,e) => sum + e.heures, 0);
   }
@@ -810,6 +830,8 @@
     renderHistoryList();
   }
   function renderHistoryList(){
+    const hint = document.getElementById("historyHint");
+    hint.style.display = (historyView === "journal" && entries.length) ? "" : "none";
     if(historyView === "semaine") renderWeekly();
     else if(historyView === "mois") renderMonthly();
     else renderJournal();
@@ -850,8 +872,9 @@
       const signedAmount = (e.heures < 0 ? "−" : "+") + formatHeures(Math.abs(e.heures)).replace("−","");
       const descText = entryDescription(e);
       const noteHtml = descText ? `<div class="note">${escapeHtml(descText)}</div>` : "";
+      const editCls = e.id === editingId ? " editing" : "";
       html += `
-        <div class="entry ${cssClass}" data-id="${e.id}">
+        <div class="entry ${cssClass}${editCls}" data-id="${e.id}" role="button" tabindex="0" aria-label="Corriger le mouvement du ${formatDateRow(e.date)}">
           <div class="amount">${signedAmount}</div>
           <div class="meta">
             <div class="date">${formatDateRow(e.date)}</div>
@@ -862,6 +885,18 @@
     }
     list.innerHTML = html;
 
+    list.querySelectorAll(".entry").forEach(row => {
+      const id = row.getAttribute("data-id");
+      const open = (ev) => {
+        if(ev.target.closest(".del-btn")) return;
+        startEdit(id);
+      };
+      row.addEventListener("click", open);
+      row.addEventListener("keydown", (ev) => {
+        if(ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); startEdit(id); }
+      });
+    });
+
     list.querySelectorAll(".del-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id");
@@ -871,6 +906,7 @@
           `Supprimer le mouvement du ${formatDateRow(entry.date)} (${entry.heures < 0 ? "−" : "+"}${formatHeures(Math.abs(entry.heures)).replace("−","")}) ?`,
           () => {
             entries = entries.filter(x => x.id !== id);
+            if(editingId === id) editingId = null;
             saveEntries();
             render();
             populateForm(dateInput.value || todayISO());
@@ -1019,7 +1055,25 @@
 
     const existing = entries.find(e => e.date === dateISO && e.type === mode);
     noteInput.value = (existing && existing.note) ? existing.note : "";
+    updateSubmitLabel(!!existing);
     updateDeltaPreview();
+  }
+
+  // Le libelle dit s'il s'agit d'une creation ou d'une correction d'une journee deja enregistree.
+  function updateSubmitLabel(isExisting){
+    if(mode === "horaire") submitBtn.textContent = isExisting ? "Corriger la journée" : "Enregistrer la journée";
+    else submitBtn.textContent = isExisting ? "Corriger la prise" : "Prendre dans le pool";
+  }
+
+  // Recharge une entree de l'historique dans le formulaire pour correction.
+  function startEdit(id){
+    const entry = entries.find(x => x.id === id);
+    if(!entry) return;
+    editingId = id;
+    dateInput.value = entry.date;
+    setMode(entry.type);
+    renderHistoryList();
+    window.scrollTo({ top:0, behavior:"smooth" });
   }
 
   function populateHoraireSelects(dateISO, sched){
@@ -1166,7 +1220,9 @@
   priseArrivalSelect.addEventListener("change", updateDeltaPreview);
   priseDepartureSelect.addEventListener("change", updateDeltaPreview);
   dateInput.addEventListener("change", () => {
+    editingId = null;
     populateForm(dateInput.value || todayISO());
+    renderHistoryList();
   });
 
   function setMode(m){
@@ -1179,8 +1235,30 @@
     submitBtn.textContent = m === "horaire" ? "Enregistrer la journée" : "Prendre dans le pool";
     populateForm(dateInput.value || todayISO());
   }
-  btnModeHoraire.addEventListener("click", () => setMode("horaire"));
-  btnModePrise.addEventListener("click", () => setMode("prise"));
+  btnModeHoraire.addEventListener("click", () => { editingId = null; setMode("horaire"); renderHistoryList(); });
+  btnModePrise.addEventListener("click", () => { editingId = null; setMode("prise"); renderHistoryList(); });
+
+  // Delta nul : soit il n'y a rien a enregistrer, soit Natacha vient de remettre
+  // les horaires de base sur une journee deja enregistree -> on propose de la retirer.
+  function handleReturnToBase(date, type){
+    const entry = entries.find(e => e.date === date && e.type === type);
+    if(!entry){
+      showToast("Aucun changement pour cette journée — rien à enregistrer.");
+      return;
+    }
+    const amount = (entry.heures < 0 ? "−" : "+") + formatHeures(Math.abs(entry.heures)).replace("−","");
+    askConfirm(
+      `Les horaires du ${formatDateRow(entry.date)} sont revenus à la normale. Supprimer ce mouvement (${amount}) ?`,
+      () => {
+        entries = entries.filter(x => x.id !== entry.id);
+        editingId = null;
+        saveEntries();
+        render();
+        populateForm(date);
+        showToast("Journée revenue à la normale ✓");
+      }
+    );
+  }
 
   submitBtn.addEventListener("click", () => {
     const date = dateInput.value || todayISO();
@@ -1188,6 +1266,10 @@
     if(mode === "horaire"){
       let arrival, departure, delta;
       if(currentSchedule.weekend){
+        if(arrivalSelect.value === "" && departureSelect.value === ""){
+          handleReturnToBase(date, "horaire");
+          return;
+        }
         if(arrivalSelect.value === "" || departureSelect.value === ""){
           showToast("Choisis une heure d'arrivée et de départ pour ce jour de week-end.");
           return;
@@ -1201,7 +1283,7 @@
         delta = (currentSchedule.start - arrival)/60 + (departure - currentSchedule.end)/60;
       }
       if(delta <= 1e-9){
-        showToast("Aucun changement pour cette journée — rien à enregistrer.");
+        handleReturnToBase(date, "horaire");
         return;
       }
       const existingIdx = entries.findIndex(e => e.date === date && e.type === "horaire");
@@ -1221,6 +1303,7 @@
       const wasExisting = existingIdx >= 0;
       if(wasExisting) entries[existingIdx] = entryData;
       else entries.push(entryData);
+      editingId = null;
       saveEntries();
       render();
       populateForm(date);
@@ -1234,7 +1317,7 @@
       const departure = parseInt(priseDepartureSelect.value, 10);
       const delta = Math.max(0, arrival - currentSchedule.start)/60 + Math.max(0, currentSchedule.end - departure)/60;
       if(delta <= 1e-9){
-        showToast("Aucun changement pour cette journée — rien à enregistrer.");
+        handleReturnToBase(date, "prise");
         return;
       }
       const existingIdx = entries.findIndex(e => e.date === date && e.type === "prise");
@@ -1254,6 +1337,7 @@
       const wasExisting = existingIdx >= 0;
       if(wasExisting) entries[existingIdx] = entryData;
       else entries.push(entryData);
+      editingId = null;
       saveEntries();
       render();
       populateForm(date);
@@ -1319,6 +1403,7 @@
           `Remplacer les données actuelles par cette sauvegarde (${clean.length} mouvement${clean.length>1?"s":""}) ? Cette action est irréversible.`,
           () => {
             entries = clean;
+            editingId = null;
             saveEntries();
             render();
             populateForm(dateInput.value || todayISO());

@@ -13,10 +13,14 @@ supplémentaires de Natacha dans un pool cumulatif.
   les horaires sont libres (aucun horaire de base).
 - **Historique** : consultable en journal, par semaine (ISO) ou par mois, avec suppression
   possible d'une entrée erronée.
+- **Correction** : toucher une journée du journal la recharge dans le formulaire, telle
+  qu'elle a été saisie. Natacha ajuste les horaires et revalide — le bouton indique
+  "Corriger la journée" et la ligne concernée reste surlignée.
 - Une seule entrée par date et par type (ajout/prise) : ressaisir une date déjà utilisée
   met à jour l'entrée existante plutôt que d'en créer une nouvelle.
 - Aucune entrée n'est enregistrée si rien n'est modifié par rapport à l'horaire de base
-  (pas de "0h" dans l'historique).
+  (pas de "0h" dans l'historique). Si une correction ramène une journée à ses horaires de
+  base, l'entrée est retirée de l'historique après confirmation.
 
 ## Conservation des données
 

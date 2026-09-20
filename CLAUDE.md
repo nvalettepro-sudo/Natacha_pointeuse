@@ -25,6 +25,15 @@ sauvegarde utilise l'API Blob/`<a download>` standard du navigateur).
   l'entrée (upsert), ne duplique pas.
 - Si rien n'est modifié par rapport à la base → **aucune entrée enregistrée**
   (pas de bruit à 0h dans l'historique).
+- **Correction** : un clic sur une ligne du journal recharge l'entrée dans le
+  formulaire (date + mode + horaires + note) et passe en mode correction —
+  `editingId` mémorise l'entrée, la ligne est surlignée, le bouton devient
+  "Corriger la journée" / "Corriger la prise". On sort du mode correction en
+  changeant de date, en basculant de mode, ou après enregistrement.
+- **Retour à la base = suppression** : valider une journée dont le delta est nul
+  alors qu'une entrée existe pour ce (date, type) propose de la supprimer
+  (confirmation). Delta nul sans entrée existante → simple message, comme avant.
+  Côté week-end, l'équivalent est de remettre les deux sélecteurs sur "Week-end".
 
 ## Modèle de données
 
