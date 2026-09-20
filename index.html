@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#EEF1EA">
+<meta name="theme-color" content="#EEF1EA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1B211C" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Heures Natacha">
@@ -680,13 +684,21 @@
   "use strict";
 
   // Seul endroit a modifier pour changer le numero affiche en bas de page.
-  const APP_VERSION = "1.1";
+  const APP_VERSION = "1.2";
   const STORAGE_KEY = "natacha_pool_heures_v1";
   let entries = [];
   let storageOK = true;
   let mode = "horaire";
 
   document.getElementById("appVersion").textContent = "Version " + APP_VERSION;
+
+  // Requis par Android pour une vraie installation, et fait marcher l'app hors ligne.
+  // Le ?v= suit APP_VERSION : changer la version suffit a renouveler le cache.
+  if("serviceWorker" in navigator){
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js?v=" + APP_VERSION).catch(() => {});
+    });
+  }
 
   // ---------- stockage ----------
   function loadEntries(){

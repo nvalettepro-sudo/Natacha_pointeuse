@@ -2,12 +2,25 @@
 
 ## Quoi
 
-App web mono-fichier (`index.html` — HTML/CSS/JS vanilla, sans framework ni build)
-qui permet à Natacha de suivre ses heures supplémentaires dans un pool cumulatif,
-depuis son téléphone (Samsung S25 FE). Conçue à l'origine comme Artifact Claude,
-puis portée pour être hébergée sur GitHub Pages en autonomie complète (aucune
-dépendance aux capacités runtime des Artifacts Claude — le téléchargement de
-sauvegarde utilise l'API Blob/`<a download>` standard du navigateur).
+App web qui permet à Natacha de suivre ses heures supplémentaires dans un pool
+cumulatif, depuis son téléphone (Samsung S25 FE). HTML/CSS/JS vanilla, sans
+framework ni build. Conçue à l'origine comme Artifact Claude, puis portée pour
+être hébergée sur GitHub Pages en autonomie complète (aucune dépendance aux
+capacités runtime des Artifacts Claude — le téléchargement de sauvegarde utilise
+l'API Blob/`<a download>` standard du navigateur).
+
+Tout le code applicatif tient dans `index.html`. Les autres fichiers à la racine
+existent uniquement pour rendre l'app **installable** sur Android, ce qu'un seul
+fichier ne permet pas :
+
+- `manifest.webmanifest` — sans lui, "Ajouter à l'écran d'accueil" ne crée qu'un
+  marque-page qui s'ouvre dans le navigateur, barre d'adresse comprise.
+- `sw.js` — Android exige un service worker avec gestionnaire `fetch` pour
+  proposer une vraie installation. Stratégie **réseau d'abord**, cache en simple
+  filet hors ligne : jamais de version figée.
+- `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`, `apple-touch-icon.png`.
+
+Aucun build, aucune dépendance : ce sont des fichiers statiques servis tels quels.
 
 ## Règles métier
 
@@ -62,6 +75,10 @@ Affiché en pied de page, piloté par la constante `APP_VERSION` en tête du
 script (seul endroit à modifier). Sert à vérifier d'un coup d'œil que le
 téléphone de Natacha ne sert pas une version en cache. **À incrémenter à
 chaque changement fonctionnel déployé.**
+
+`APP_VERSION` alimente aussi le service worker via `sw.js?v=…` : l'incrémenter
+renouvelle le nom du cache et purge l'ancien à l'activation. C'est le mécanisme
+qui garantit qu'une mise à jour atteint le téléphone de Natacha.
 
 ## Persistance
 

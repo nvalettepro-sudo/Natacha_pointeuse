@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "Le pool d'heures · Natacha",
+  "short_name": "Heures",
+  "description": "Suivi du pool d'heures supplémentaires de Natacha.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EEF1EA",
+  "theme_color": "#EEF1EA",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

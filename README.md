@@ -22,6 +22,16 @@ supplémentaires de Natacha dans un pool cumulatif.
   (pas de "0h" dans l'historique). Si une correction ramène une journée à ses horaires de
   base, l'entrée est retirée de l'historique après confirmation.
 
+## Installation sur le téléphone
+
+L'app est installable : depuis le lien, le menu du navigateur propose
+"Installer l'application" (Chrome / Samsung Internet) ou "Sur l'écran d'accueil"
+(Safari). Elle s'ouvre alors en plein écran, sans barre d'adresse, et fonctionne
+sans réseau.
+
+Si le navigateur ne propose qu'un simple raccourci, c'est qu'il sert une version
+en cache : forcer le rechargement de la page, puis réessayer.
+
 ## Conservation des données
 
 **Tout est stocké en local, dans le navigateur de l'appareil qui ouvre la page**
@@ -40,7 +50,9 @@ supplémentaires de Natacha dans un pool cumulatif.
 ## Déploiement (GitHub Pages)
 
 1. `index.html` doit rester à la racine du dépôt (ou dans `/docs`, à ajuster dans les
-   paramètres Pages du dépôt en conséquence).
+   paramètres Pages du dépôt en conséquence). `manifest.webmanifest`, `sw.js` et les
+   quatre `*.png` doivent rester à ses côtés : ce sont eux qui rendent l'app
+   installable sur Android et utilisable hors ligne.
 2. Dans les paramètres du dépôt GitHub → *Pages* → *Source* : brancher sur la branche
    principale, dossier `/ (root)`.
 3. L'application est ensuite accessible à `https://<utilisateur>.github.io/<repo>/`.
