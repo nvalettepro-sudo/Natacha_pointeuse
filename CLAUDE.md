@@ -80,23 +80,83 @@ chaque changement fonctionnel déployé.**
 renouvelle le nom du cache et purge l'ancien à l'activation. C'est le mécanisme
 qui garantit qu'une mise à jour atteint le téléphone de Natacha.
 
+## Déploiement
+
+Hébergé sur GitHub Pages, branche `main`, dossier racine, `Enforce HTTPS` actif.
+URL : https://nvalettepro-sudo.github.io/Natacha_pointeuse/
+
+**État au 21/09/2026** : version 1.2 en ligne, app installée et validée sur le
+téléphone de Natacha (Samsung S25 FE).
+
+### Le build Pages ne part pas toujours
+
+Plusieurs pushes sur `main` n'ont déclenché **aucun** build : ni workflow
+"pages build and deployment", ni déploiement, sans le moindre message d'erreur.
+Le code était bien sur `main`, `has_pages` à `true` — seule l'étape de
+publication restait muette.
+
+Déblocage (à faire manuellement par Nico, c'est le seul levier qui a marché) :
+
+1. https://github.com/nvalettepro-sudo/Natacha_pointeuse/settings/pages
+2. **Branch** → `None` → **Save**
+3. **Branch** → `main` + `/ (root)` → **Save**
+
+Le build part dans la minute. **Ne jamais conclure qu'un déploiement est fait
+sans l'avoir vérifié** : pousser ne suffit pas.
+
+### Vérifier un déploiement depuis une session Claude
+
+Trois choses sont bloquées et le resteront — inutile de les retenter :
+
+| Action | Blocage |
+|---|---|
+| API `/repos/.../pages` (activer, lire la config) | 403 du proxy sortant |
+| Charger `nvalettepro-sudo.github.io` (curl, WebFetch) | domaine bloqué |
+| Relancer un workflow (API Actions) | 403 `Resource not accessible by integration` |
+
+Ce qui marche, et qui sert de vérification de référence :
+
+```
+GET /repos/nvalettepro-sudo/Natacha_pointeuse/deployments?per_page=1&ref=main
+GET /repos/nvalettepro-sudo/Natacha_pointeuse/deployments/<id>/statuses
+GET /repos/nvalettepro-sudo/Natacha_pointeuse/actions/runs?per_page=1
+```
+
+Un déploiement est confirmé quand le `sha` correspond au commit poussé **et**
+que l'état est `success`. Côté Natacha, le repère visuel équivalent est le
+numéro de version en pied de page.
+
 ## Persistance
 
 100% côté client (`localStorage`), pas de backend. Données propres à l'origine
 (le domaine GitHub Pages) et au navigateur/appareil — pas de synchronisation
 multi-appareils. Export/Import JSON en bas de page comme filet de sécurité.
 
-## Prochaine étape prévue (pas encore demandée)
+## Prochaine étape : sauvegarde en écriture seule
 
-Nico veut ajouter une **sauvegarde en écriture seule** : à chaque enregistrement/
-modification/suppression, l'app envoie une copie de l'état complet vers un
-stockage en ligne (probablement un Google Form caché relié à une Google Sheet,
-sur le compte Google de Nico — pas celui de Natacha, qui n'a pas de compte
-Google/Claude). Ce n'est PAS une synchronisation multi-appareils temps réel :
-l'app continue de fonctionner sur ses données locales au quotidien, cette
-sauvegarde sert uniquement de filet en cas de réinitialisation du navigateur
-de Natacha. Ne pas implémenter cette partie tant que Nico ne le demande pas
-explicitement — priorité actuelle : déployer et faire tester l'app par Natacha.
+**C'est la tâche en cours** depuis le 21/09/2026, la phase de déploiement et de
+test par Natacha étant terminée.
+
+À chaque enregistrement / modification / suppression, l'app envoie une copie de
+l'état complet vers un stockage en ligne.
+
+**Approche arrêtée par Nico** (confirmée le 21/09/2026, ne pas la remettre en
+question sans lui demander) : un **Google Form caché relié à une Google Sheet**,
+sur le **compte Google de Nico**.
+
+Pourquoi ce choix plutôt que l'API Google Drive : Natacha n'a **pas de compte
+Google**. Drive imposerait un parcours OAuth côté utilisateur, impossible ici.
+Un Form accepte un simple `POST` sans authentification, ce qui préserve le
+"zéro backend, zéro dépendance" du projet.
+
+Cadrage à respecter :
+
+- **Écriture seule.** Ce n'est PAS une synchronisation multi-appareils temps
+  réel. L'app continue de tourner sur `localStorage` au quotidien ; la
+  sauvegarde n'est qu'un filet si le navigateur de Natacha est réinitialisé.
+- L'échec d'un envoi ne doit **jamais** bloquer ni ralentir la saisie.
+- Penser au mode hors ligne : le service worker laisse passer les requêtes
+  cross-origin, mais sans réseau l'envoi échouera — prévoir le comportement.
 
 ## Historique de conception
 
