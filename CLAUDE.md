@@ -135,28 +135,70 @@ multi-appareils. Export/Import JSON en bas de page comme filet de sécurité.
 ## Prochaine étape : sauvegarde en écriture seule
 
 **C'est la tâche en cours** depuis le 21/09/2026, la phase de déploiement et de
-test par Natacha étant terminée.
+test par Natacha étant terminée. Les décisions ci-dessous sont actées avec
+Nico (21/09/2026) — ne pas les remettre en question sans lui demander.
 
-À chaque enregistrement / modification / suppression, l'app envoie une copie de
-l'état complet vers un stockage en ligne.
+**Principe** : à chaque enregistrement / modification / suppression, l'app
+envoie une **photo complète** de l'état vers un stockage en ligne. Jamais un
+delta — toujours la totalité de `entries`. Chaque envoi est indépendant des
+précédents ; la dernière ligne reçue fait foi.
 
-**Approche arrêtée par Nico** (confirmée le 21/09/2026, ne pas la remettre en
-question sans lui demander) : un **Google Form caché relié à une Google Sheet**,
-sur le **compte Google de Nico**.
+**Transport** : un **Google Form caché relié à une Google Sheet**, sur le
+**compte Google de Nico**. Pourquoi ce choix plutôt que l'API Google Drive :
+Natacha n'a **pas de compte Google**. Drive imposerait un parcours OAuth côté
+utilisateur, impossible ici. Un Form accepte un simple `POST` sans
+authentification, ce qui préserve le "zéro backend, zéro dépendance" du
+projet. Contrepartie : la requête part en `no-cors`, l'app ne peut donc
+jamais savoir si Google a bien enregistré la ligne — seulement que la requête
+est partie. Le premier envoi doit être vérifié à la main dans la Sheet.
 
-Pourquoi ce choix plutôt que l'API Google Drive : Natacha n'a **pas de compte
-Google**. Drive imposerait un parcours OAuth côté utilisateur, impossible ici.
-Un Form accepte un simple `POST` sans authentification, ce qui préserve le
-"zéro backend, zéro dépendance" du projet.
+**Format du payload : CSV** (séparateur `;`), pas JSON — même format que
+l'export/import existant. Deux raisons : lisible tel quel par Nico dans la
+Sheet, et 2,7× plus compact que le JSON (~71 car./entrée contre ~195), ce qui
+repousse la limite de 50 000 car. par cellule Google Sheets d'environ 14 mois
+à environ 3,2 ans (à ~18 mouvements/mois). Parser d'import **tolérant** :
+accepte `;` ou `,` en séparateur, `.` ou `,` en décimale (pour survivre à un
+export/réimport via Excel FR) — et continue d'accepter le JSON en entrée,
+sans coût, en filet.
 
-Cadrage à respecter :
+**Fréquence** : à chaque mutation, accrochée à `saveEntries()` (point unique
+déjà emprunté par tous les chemins d'écriture — création, correction,
+suppression, restauration). Pas de minuteur ni de regroupement.
 
-- **Écriture seule.** Ce n'est PAS une synchronisation multi-appareils temps
-  réel. L'app continue de tourner sur `localStorage` au quotidien ; la
-  sauvegarde n'est qu'un filet si le navigateur de Natacha est réinitialisé.
-- L'échec d'un envoi ne doit **jamais** bloquer ni ralentir la saisie.
-- Penser au mode hors ligne : le service worker laisse passer les requêtes
-  cross-origin, mais sans réseau l'envoi échouera — prévoir le comportement.
+**Hors ligne** : la saisie reste **toujours possible**, y compris sans
+réseau (c'est tout l'intérêt du service worker). Si l'envoi échoue, la photo
+est mise en file d'attente dans `localStorage` et renvoyée au retour du
+réseau (`window.addEventListener("online", …)`) et à la réouverture de
+l'app. Ne jamais bloquer la saisie pour forcer une sauvegarde — l'app locale
+reste la source de vérité, la sauvegarde n'est qu'un filet.
+
+**Pied de page** : date du dernier envoi *tenté* affichée en petit, sous le
+numéro de version (ex. « Sauvegardé le 21/09 à 14h32 »). Pendant une file
+d'attente hors ligne, remplacer par « Hors ligne — sauvegarde en attente ».
+Ne jamais afficher "réussi" — le `no-cors` ne permet pas de le garantir,
+seule la date de tentative est honnête.
+
+**Restauration** : garder le bouton "Restaurer une sauvegarde" (fichier)
+existant, et ajouter une option **"Coller une sauvegarde"** (zone de texte +
+Confirmer) à côté. Pour un CSV copié depuis la Sheet et envoyé par message à
+Natacha, coller est bien plus praticable sur téléphone qu'un fichier à faire
+atterrir au bon endroit.
+
+**Lisibilité côté Sheet** : le Form ne donne qu'une cellule brute par envoi
+(un bloc CSV, pas un tableau). Prévoir un second onglet "Lecture" avec une
+formule qui éclate la dernière ligne reçue en tableau (`SPLIT` sur retours
+ligne puis sur `;`) — formule exacte à écrire une fois le Form créé.
+
+**Limite de taille — pas encore un problème, ne pas coder préventivement** :
+au rythme actuel, la cellule Sheets sature dans ~3,2 ans. Le jour venu, la
+bonne réponse n'est **pas** de supprimer les entrées anciennes — le solde du
+pool est la somme de `entries.heures`, en supprimer change silencieusement
+le solde de Natacha. La bonne méthode est de **consolider** : remplacer les
+entrées de plus d'un an par une entrée de report unique qui porte leur somme
+(comme un solde à nouveau bancaire), jamais une suppression sèche.
+
+**Reste à obtenir avant de coder** : l'URL d'envoi du Form
+(`.../formResponse`) et l'identifiant du champ CSV (`entry.XXXXXXXXX`).
 
 ## Historique de conception
 
