@@ -1,7 +1,11 @@
 # Pool d'heures · Natacha
 
-Application web mono-fichier (zéro dépendance, zéro backend) pour suivre les heures
-supplémentaires de Natacha dans un pool cumulatif.
+**→ https://nvalettepro-sudo.github.io/Natacha_pointeuse/**
+
+Application web (zéro dépendance, zéro backend) pour suivre les heures
+supplémentaires de Natacha dans un pool cumulatif. Tout le code applicatif tient
+dans `index.html` ; les autres fichiers servent uniquement à rendre l'app
+installable sur Android et utilisable hors ligne.
 
 ## Fonctionnement
 
