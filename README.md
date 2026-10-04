@@ -45,11 +45,26 @@ en cache : forcer le rechargement de la page, puis réessayer.
 - Les données restent sur l'appareil de Natacha tant qu'elle rouvre le **même lien** dans le
   **même navigateur**. Un changement de téléphone, de navigateur, ou un vidage du cache/des
   données du site efface l'historique local.
-- Pour limiter ce risque : ajouter la page à l'écran d'accueil (évite le nettoyage automatique
-  des données par le navigateur) et exporter une sauvegarde JSON de temps en temps via le
-  bouton "Exporter une sauvegarde" (bas de page). "Restaurer une sauvegarde" recharge un
-  fichier exporté.
 - Les données ne sont **pas synchronisées** entre plusieurs appareils.
+
+### Sauvegarde automatique
+
+À chaque enregistrement, correction ou suppression, l'app envoie en silence une copie
+complète des données vers une Google Sheet (compte de Nico). C'est un filet, pas une
+synchronisation : l'app continue de fonctionner sur ses données locales au quotidien,
+et Natacha n'a besoin d'aucun compte Google. L'heure du dernier envoi tenté s'affiche
+en petit sous le numéro de version ; "Hors ligne — sauvegarde en attente" signale un
+envoi en attente, renvoyé dès que le réseau revient.
+
+### En complément
+
+- Ajouter la page à l'écran d'accueil évite le nettoyage automatique des données par
+  le navigateur (voir *Installation sur le téléphone* ci-dessus).
+- "Exporter une sauvegarde" (bas de page) télécharge un fichier `.csv` lisible dans
+  un tableur. "Restaurer une sauvegarde" recharge un fichier exporté ; "Coller une
+  sauvegarde" fait la même chose à partir d'un texte collé — pratique pour renvoyer
+  à Natacha le contenu d'une ligne copiée depuis la Google Sheet, sans manipuler de
+  fichier sur son téléphone.
 
 ## Déploiement (GitHub Pages)
 

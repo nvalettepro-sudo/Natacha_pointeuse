@@ -500,6 +500,37 @@
     margin:0 auto;
     opacity:.75;
   }
+  footer .backup-status{
+    color:var(--ink-muted);
+    font-size:.68rem;
+    margin:.15rem auto 0;
+    opacity:.65;
+  }
+  .paste-title{
+    font-family:var(--font-serif);
+    font-weight:500;
+    font-size:1rem;
+    margin:0 0 .6rem;
+    text-align:left;
+  }
+  .paste-area{
+    width:100%;
+    min-height:120px;
+    font-family:var(--font-sans);
+    font-size:.82rem;
+    padding:.6rem .7rem;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--ink);
+    resize:vertical;
+    margin-bottom:1rem;
+    outline:none;
+  }
+  .paste-area:focus-visible{
+    border-color:var(--accent-add);
+    box-shadow:0 0 0 3px var(--accent-add-soft);
+  }
   .overlay{
     position:fixed;
     inset:0;
@@ -660,9 +691,11 @@
     <div class="footer-actions">
       <button class="ghost-btn" id="exportBtn">Exporter une sauvegarde</button>
       <button class="ghost-btn" id="importBtn">Restaurer une sauvegarde</button>
-      <input type="file" id="importInput" accept="application/json,.json" style="display:none">
+      <button class="ghost-btn" id="pasteBtn">Coller une sauvegarde</button>
+      <input type="file" id="importInput" accept="text/csv,.csv,application/json,.json" style="display:none">
     </div>
     <p class="version" id="appVersion"></p>
+    <p class="backup-status" id="backupStatus"></p>
   </footer>
 
 </div>
@@ -677,6 +710,17 @@
   </div>
 </div>
 
+<div class="overlay" id="pasteOverlay">
+  <div class="confirm-card">
+    <p class="paste-title">Coller une sauvegarde</p>
+    <textarea id="pasteArea" class="paste-area" placeholder="Colle ici le contenu copié depuis la Google Sheet ou un fichier de sauvegarde…" aria-label="Contenu de la sauvegarde à restaurer"></textarea>
+    <div class="confirm-actions">
+      <button id="pasteCancel">Annuler</button>
+      <button id="pasteOk">Charger</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -684,7 +728,7 @@
   "use strict";
 
   // Seul endroit a modifier pour changer le numero affiche en bas de page.
-  const APP_VERSION = "1.2";
+  const APP_VERSION = "1.3";
   const STORAGE_KEY = "natacha_pool_heures_v1";
   let entries = [];
   let storageOK = true;
@@ -719,6 +763,7 @@
       storageOK = false;
     }
     document.getElementById("storageBanner").classList.toggle("show", !storageOK);
+    sendBackup();
   }
   function isValidEntry(e){
     if(!e || typeof e.date !== "string" || typeof e.heures !== "number" || isNaN(e.heures)) return false;
@@ -752,6 +797,188 @@
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
   function monthKey(iso){ return iso.slice(0,7); }
+
+  // ---------- CSV (export, import, sauvegarde en ligne) ----------
+  // Un seul format pour les trois usages : le fichier exporte, ce qu'on colle
+  // pour restaurer, et ce qui part vers la Google Sheet. Plus compact que le
+  // JSON (donc une Sheet qui dure plus longtemps) et lisible tel quel par Nico.
+  const CSV_HEADER = ["id","date","type","heures","arrivalMin","departureMin","standardStart","standardEnd","weekend","note","createdAt"];
+
+  function csvEscapeField(v){
+    const s = (v === null || v === undefined) ? "" : String(v);
+    if(/[;"\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function entriesToCSV(list){
+    const lines = [CSV_HEADER.join(";")];
+    list.forEach(e => {
+      const row = [
+        e.id,
+        e.date,
+        e.type,
+        e.heures,
+        e.arrivalMin !== undefined ? e.arrivalMin : "",
+        e.departureMin !== undefined ? e.departureMin : "",
+        (e.standardStart === null || e.standardStart === undefined) ? "" : e.standardStart,
+        (e.standardEnd === null || e.standardEnd === undefined) ? "" : e.standardEnd,
+        e.weekend ? "true" : "false",
+        e.note || "",
+        e.createdAt ? new Date(e.createdAt).toISOString() : ""
+      ];
+      lines.push(row.map(csvEscapeField).join(";"));
+    });
+    return lines.join("\n");
+  }
+
+  // Parseur CSV generique (gere les champs entre guillemets, y compris avec
+  // des retours a la ligne ou le separateur a l'interieur).
+  function parseCSVRows(text, delimiter){
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    for(let i=0; i<text.length; i++){
+      const c = text[i];
+      if(inQuotes){
+        if(c === '"'){
+          if(text[i+1] === '"'){ field += '"'; i++; }
+          else inQuotes = false;
+        } else field += c;
+      } else {
+        if(c === '"') inQuotes = true;
+        else if(c === delimiter){ row.push(field); field = ""; }
+        else if(c === "\n"){ row.push(field); rows.push(row); row = []; field = ""; }
+        else if(c === "\r"){ /* ignore, \n gere le saut de ligne */ }
+        else field += c;
+      }
+    }
+    if(field.length || row.length){ row.push(field); rows.push(row); }
+    return rows.filter(r => !(r.length === 1 && r[0].trim() === ""));
+  }
+  // Excel en français réexporte avec `;` ; un copier-coller depuis la Sheet
+  // peut arriver avec `,`. On détecte sur la ligne d'en-tête, jamais ambiguë.
+  function detectDelimiter(headerLine){
+    const semi = (headerLine.match(/;/g) || []).length;
+    const comma = (headerLine.match(/,/g) || []).length;
+    return semi >= comma ? ";" : ",";
+  }
+  // Tolère la virgule décimale française, mais seulement quand le nombre ne
+  // contient pas déjà de point (sinon "1,234.5" casserait).
+  function parseNumberTolerant(s){
+    const t = String(s === undefined || s === null ? "" : s).trim();
+    if(t === "") return NaN;
+    const normalized = t.indexOf(".") === -1 ? t.replace(",", ".") : t;
+    return parseFloat(normalized);
+  }
+  // Accepte YYYY-MM-DD (format natif) et JJ/MM/AAAA (ce que renvoie Excel FR
+  // si le fichier a été réouvert puis réenregistré).
+  function parseDateTolerant(s){
+    const t = String(s || "").trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+    return null;
+  }
+  function parseCreatedAtTolerant(s){
+    const t = String(s || "").trim();
+    if(!t) return Date.now();
+    const iso = Date.parse(t);
+    if(!isNaN(iso)) return iso;
+    const num = Number(t);
+    if(!isNaN(num) && num > 0) return num;
+    return Date.now();
+  }
+  function entriesFromCSV(text){
+    const trimmed = text.trim();
+    if(!trimmed) return [];
+    const rows = parseCSVRows(trimmed, detectDelimiter(trimmed.split("\n")[0] || ""));
+    if(rows.length < 2) return [];
+    const header = rows[0].map(h => h.trim());
+    const idx = {};
+    header.forEach((h,i) => { idx[h] = i; });
+    const get = (row, name) => idx[name] !== undefined ? (row[idx[name]] || "").trim() : "";
+    const out = [];
+    for(let r=1; r<rows.length; r++){
+      const row = rows[r];
+      const date = parseDateTolerant(get(row,"date"));
+      if(!date) continue; // ligne illisible : on l'ignore plutôt que de rejeter tout l'import
+      const heures = parseNumberTolerant(get(row,"heures"));
+      if(isNaN(heures)) continue;
+      const type = get(row,"type").toLowerCase();
+      const entry = {
+        id: get(row,"id") || uid(),
+        date,
+        type,
+        heures,
+        note: get(row,"note").slice(0,80),
+        createdAt: parseCreatedAtTolerant(get(row,"createdAt"))
+      };
+      if(type === "horaire" || type === "prise"){
+        entry.arrivalMin = parseInt(get(row,"arrivalMin"), 10);
+        entry.departureMin = parseInt(get(row,"departureMin"), 10);
+        const ss = get(row,"standardStart");
+        const se = get(row,"standardEnd");
+        entry.standardStart = ss === "" ? null : parseInt(ss, 10);
+        entry.standardEnd = se === "" ? null : parseInt(se, 10);
+        const weekendRaw = get(row,"weekend").toLowerCase();
+        entry.weekend = weekendRaw === "true" || weekendRaw === "vrai" || weekendRaw === "1";
+      }
+      out.push(entry);
+    }
+    return out;
+  }
+  // Point d'entrée commun à la restauration par fichier et par collage : CSV
+  // en priorité, JSON toujours accepté en filet (anciennes sauvegardes).
+  function parseBackupText(text){
+    const trimmed = (text || "").trim();
+    if(trimmed === "") return [];
+    if(trimmed[0] === "{" || trimmed[0] === "["){
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed : parsed.entries;
+    }
+    return entriesFromCSV(trimmed);
+  }
+
+  // ---------- sauvegarde en écriture seule (Google Form -> Google Sheet) ----------
+  // Photo complète de `entries` envoyée à chaque mutation, jamais un delta.
+  // La requête part en no-cors : on sait qu'elle est partie, jamais si Google
+  // l'a enregistrée — vérifié une fois à la main dans la Sheet à la mise en
+  // place. Un échec (hors ligne, requête bloquée) ne bloque jamais la saisie :
+  // il met juste une sauvegarde en attente, renvoyée au retour du réseau.
+  const BACKUP_FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSfPuYJcCBcD54k8HK3kMSQzL-j_qaDgn_jB6yWEY-w5qafMXQ/formResponse";
+  const BACKUP_FIELD = "entry.393463798";
+  const BACKUP_PENDING_KEY = "natacha_pool_backup_pending_v1";
+  const BACKUP_LAST_KEY = "natacha_pool_backup_last_v1";
+
+  function sendBackup(){
+    const body = new URLSearchParams();
+    body.set(BACKUP_FIELD, entriesToCSV(entries));
+    fetch(BACKUP_FORM_URL, { method: "POST", mode: "no-cors", body })
+      .then(() => {
+        localStorage.setItem(BACKUP_LAST_KEY, String(Date.now()));
+        localStorage.removeItem(BACKUP_PENDING_KEY);
+        updateBackupStatus();
+      })
+      .catch(() => {
+        localStorage.setItem(BACKUP_PENDING_KEY, "1");
+        updateBackupStatus();
+      });
+  }
+  function updateBackupStatus(){
+    const el = document.getElementById("backupStatus");
+    if(!el) return;
+    if(localStorage.getItem(BACKUP_PENDING_KEY)){
+      el.textContent = "Hors ligne — sauvegarde en attente";
+      return;
+    }
+    const last = localStorage.getItem(BACKUP_LAST_KEY);
+    if(!last){ el.textContent = ""; return; }
+    const d = new Date(Number(last));
+    const date = new Intl.DateTimeFormat("fr-FR", { day:"2-digit", month:"2-digit" }).format(d);
+    const time = new Intl.DateTimeFormat("fr-FR", { hour:"2-digit", minute:"2-digit" }).format(d);
+    el.textContent = `Sauvegardé le ${date} à ${time}`;
+  }
+  window.addEventListener("online", () => {
+    if(localStorage.getItem(BACKUP_PENDING_KEY)) sendBackup();
+  });
 
   // ---------- horaires standard ----------
   const DAY_MIN = 24*60;
@@ -1361,13 +1588,18 @@
     }
   });
 
-  // ---------- export / import ----------
+  // ---------- export / import / collage ----------
   const exportBtn = document.getElementById("exportBtn");
   const importBtn = document.getElementById("importBtn");
   const importInput = document.getElementById("importInput");
+  const pasteBtn = document.getElementById("pasteBtn");
+  const pasteOverlay = document.getElementById("pasteOverlay");
+  const pasteArea = document.getElementById("pasteArea");
+  const pasteCancelBtn = document.getElementById("pasteCancel");
+  const pasteOkBtn = document.getElementById("pasteOk");
 
-  function downloadJSON(filename, dataStr){
-    const blob = new Blob([dataStr], { type: "application/json" });
+  function downloadFile(filename, dataStr, mime){
+    const blob = new Blob([dataStr], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1379,59 +1611,83 @@
   }
 
   exportBtn.addEventListener("click", () => {
-    const payload = JSON.stringify({ entries, exportedAt: new Date().toISOString() }, null, 2);
-    const filename = `heures-natacha-${todayISO()}.json`;
+    const payload = entriesToCSV(entries);
+    const filename = `heures-natacha-${todayISO()}.csv`;
     try{
-      downloadJSON(filename, payload);
+      downloadFile(filename, payload, "text/csv;charset=utf-8");
       showToast("Sauvegarde exportée ✓");
     }catch(err){
       showToast("Échec de l'export.");
     }
   });
 
+  // Chemin commun au fichier et au collage : parse (CSV ou JSON en filet),
+  // nettoie, demande confirmation puis remplace entries.
+  function applyBackupText(text){
+    let arr;
+    try{
+      arr = parseBackupText(text);
+    }catch(err){
+      showToast("Sauvegarde illisible.");
+      return;
+    }
+    if(!Array.isArray(arr)){
+      showToast("Sauvegarde illisible.");
+      return;
+    }
+    const clean = arr.filter(isValidEntry).map(x => ({
+      id: x.id || uid(),
+      date: x.date,
+      heures: x.heures,
+      type: x.type,
+      note: typeof x.note === "string" ? x.note.slice(0,80) : "",
+      createdAt: x.createdAt || Date.now(),
+      ...(x.type === "horaire" || x.type === "prise" ? {
+        arrivalMin: x.arrivalMin,
+        departureMin: x.departureMin,
+        standardStart: x.standardStart,
+        standardEnd: x.standardEnd,
+        weekend: !!x.weekend
+      } : {})
+    }));
+    if(clean.length === 0){
+      showToast("Sauvegarde vide ou illisible.");
+      return;
+    }
+    askConfirm(
+      `Remplacer les données actuelles par cette sauvegarde (${clean.length} mouvement${clean.length>1?"s":""}) ? Cette action est irréversible.`,
+      () => {
+        entries = clean;
+        editingId = null;
+        saveEntries();
+        render();
+        populateForm(dateInput.value || todayISO());
+        showToast("Sauvegarde restaurée ✓");
+      }
+    );
+  }
+
   importBtn.addEventListener("click", () => importInput.click());
   importInput.addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      try{
-        const parsed = JSON.parse(reader.result);
-        const arr = Array.isArray(parsed) ? parsed : parsed.entries;
-        if(!Array.isArray(arr)) throw new Error("format");
-        const clean = arr.filter(isValidEntry).map(x => ({
-          id: x.id || uid(),
-          date: x.date,
-          heures: x.heures,
-          type: x.type,
-          note: typeof x.note === "string" ? x.note.slice(0,80) : "",
-          createdAt: x.createdAt || Date.now(),
-          ...(x.type === "horaire" || x.type === "prise" ? {
-            arrivalMin: x.arrivalMin,
-            departureMin: x.departureMin,
-            standardStart: x.standardStart,
-            standardEnd: x.standardEnd,
-            weekend: !!x.weekend
-          } : {})
-        }));
-        if(clean.length === 0) throw new Error("empty");
-        askConfirm(
-          `Remplacer les données actuelles par cette sauvegarde (${clean.length} mouvement${clean.length>1?"s":""}) ? Cette action est irréversible.`,
-          () => {
-            entries = clean;
-            editingId = null;
-            saveEntries();
-            render();
-            populateForm(dateInput.value || todayISO());
-            showToast("Sauvegarde restaurée ✓");
-          }
-        );
-      }catch(err){
-        showToast("Fichier de sauvegarde invalide.");
-      }
-    };
+    reader.onload = () => applyBackupText(reader.result);
     reader.readAsText(file);
     importInput.value = "";
+  });
+
+  pasteBtn.addEventListener("click", () => {
+    pasteArea.value = "";
+    pasteOverlay.classList.add("show");
+    pasteArea.focus();
+  });
+  pasteCancelBtn.addEventListener("click", () => pasteOverlay.classList.remove("show"));
+  pasteOkBtn.addEventListener("click", () => {
+    const text = pasteArea.value;
+    pasteOverlay.classList.remove("show");
+    if(!text.trim()){ showToast("Rien à charger."); return; }
+    applyBackupText(text);
   });
 
   // ---------- init ----------
@@ -1439,6 +1695,8 @@
   document.getElementById("storageBanner").classList.toggle("show", !storageOK);
   render();
   setMode("horaire");
+  updateBackupStatus();
+  if(localStorage.getItem(BACKUP_PENDING_KEY)) sendBackup();
 })();
 </script>
 </body>
