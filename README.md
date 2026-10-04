@@ -47,14 +47,47 @@ en cache : forcer le rechargement de la page, puis réessayer.
   données du site efface l'historique local.
 - Les données ne sont **pas synchronisées** entre plusieurs appareils.
 
-### Sauvegarde automatique
+## Sauvegarde automatique (Google Sheets)
 
-À chaque enregistrement, correction ou suppression, l'app envoie en silence une copie
-complète des données vers une Google Sheet (compte de Nico). C'est un filet, pas une
-synchronisation : l'app continue de fonctionner sur ses données locales au quotidien,
-et Natacha n'a besoin d'aucun compte Google. L'heure du dernier envoi tenté s'affiche
-en petit sous le numéro de version ; "Hors ligne — sauvegarde en attente" signale un
-envoi en attente, renvoyé dès que le réseau revient.
+En plus du `localStorage`, l'app tient un filet silencieux : à chaque mouvement
+enregistré, corrigé ou supprimé, elle envoie une copie complète des données vers
+une Google Sheet sur le compte personnel de Nico. Ce n'est **pas** une
+synchronisation — l'app continue de fonctionner au quotidien sur ses données
+locales, dans le navigateur de Natacha, qui n'a besoin d'aucun compte Google. La
+sauvegarde ne sert qu'à restaurer les données si son téléphone ou son navigateur
+venait à perdre le `localStorage`.
+
+**Accès** (comptes Google de Nico uniquement — ces liens ne s'ouvriront pas pour
+quelqu'un d'autre, la Sheet et le dossier sont privés) :
+
+- 📁 [Dossier "Sauvegarde Natacha Pointeuse"](https://drive.google.com/drive/folders/1btVk2dDRUkYtH7XH2sC3EowOGCVnPbvJ) — regroupe les deux éléments ci-dessous.
+- 📝 [Formulaire "Sauvegarde — Pool d'heures Natacha"](https://docs.google.com/forms/d/1oIk8QhXwUA3UnD3BcZTOfQuifEoZ7zK1s7qj8IPycF4/edit) — reçoit les envois de l'app. Natacha ne le voit jamais : l'app n'y soumet pas une réponse au sens classique, elle poste directement sur son endpoint technique (voir `CLAUDE.md` pour l'URL exacte et l'identifiant du champ).
+- 📊 [Sheet "Sauvegarde — Pool d'heures Natacha (réponses)"](https://docs.google.com/spreadsheets/d/1NKIFuRmcNo8pkn9WXNzlZHjESljt0zcEDh89PCnBW9g/edit) — une ligne par envoi, horodatée. La dernière ligne reçue est toujours l'état le plus récent.
+
+**Comment ça marche, en détail :**
+
+1. **Photo complète, jamais un delta.** Chaque envoi contient la totalité des
+   mouvements de Natacha, pas seulement ce qui vient de changer. La Sheet
+   accumule donc un historique de photos successives — pratique pour remonter
+   à un état antérieur si une suppression s'avère être une erreur.
+2. **Format CSV**, le même que les boutons "Exporter" / "Restaurer" en bas de
+   page de l'app : une ligne de la Sheet se recolle telle quelle dans l'app
+   pour une restauration (voir plus bas).
+3. **Aucune confirmation de réussite possible.** La requête part en mode
+   technique `no-cors` (nécessaire pour poster sans compte Google ni serveur
+   intermédiaire) : l'app sait que l'envoi est *parti*, jamais si Google l'a
+   *enregistré*. Le pied de page de l'app affiche donc "Sauvegardé le …"
+   (date du dernier envoi tenté) plutôt qu'un message de succès — et jamais de
+   coche verte trompeuse.
+4. **Hors ligne, rien ne se perd et rien ne bloque.** Natacha peut saisir ses
+   heures sans réseau (l'app fonctionne hors ligne, voir *Installation sur le
+   téléphone*). Un envoi qui échoue est mis en attente et renvoyé
+   automatiquement dès que le réseau revient — le pied de page affiche alors
+   "Hors ligne — sauvegarde en attente".
+5. **Limite à surveiller, pas encore atteinte** : une cellule Google Sheets
+   plafonne à 50 000 caractères. Au rythme d'usage actuel, ça laisse environ
+   3 ans avant saturation. Le détail technique (et la méthode à suivre le jour
+   venu — consolider, jamais supprimer l'historique) est dans `CLAUDE.md`.
 
 ### En complément
 
@@ -63,8 +96,9 @@ envoi en attente, renvoyé dès que le réseau revient.
 - "Exporter une sauvegarde" (bas de page) télécharge un fichier `.csv` lisible dans
   un tableur. "Restaurer une sauvegarde" recharge un fichier exporté ; "Coller une
   sauvegarde" fait la même chose à partir d'un texte collé — pratique pour renvoyer
-  à Natacha le contenu d'une ligne copiée depuis la Google Sheet, sans manipuler de
-  fichier sur son téléphone.
+  à Natacha le contenu d'une ligne copiée depuis la Google Sheet ci-dessus, sans
+  manipuler de fichier sur son téléphone : Nico copie une ligne, l'envoie par
+  message, Natacha la colle.
 
 ## Déploiement (GitHub Pages)
 
