@@ -246,6 +246,32 @@ de navigation » ou « cookies et données de site » — ça viderait son
 « vider les images et fichiers en cache », qui laisse `localStorage` intact.
 `APP_VERSION` + rechargement suffit dans l'immense majorité des cas.
 
+### Tester sans polluer sa sauvegarde partagée
+
+Le Form/la Sheet sont une destination **unique et partagée** — pas propre à
+chaque appareil, contrairement à `localStorage`. Si Nico ouvre l'URL de
+production sur son PC pour tester un changement et enregistre des
+mouvements, l'app enverrait une photo de *ces données de test* vers la même
+Sheet que celle de Natacha — la dernière ligne reçue (censée faire foi,
+voir plus haut) serait alors ses données de test, pas le vrai solde de
+Natacha. Ses données à elle, sur son téléphone, ne risqueraient toujours
+rien (`localStorage` reste séparé) — seule l'intégrité de la sauvegarde
+serait compromise.
+
+**Paramètre `?nobackup`** (`TEST_MODE` dans `index.html`) : ouvrir
+`https://nvalettepro-sudo.github.io/Natacha_pointeuse/?nobackup` coupe
+uniquement l'appel réseau vers le Form — `sendBackup()` retourne
+immédiatement sans rien envoyer. Le pied de page affiche alors « Mode test
+— sauvegarde désactivée » à la place de la date, pour qu'il soit impossible
+d'oublier qu'on est en mode test. Tout le reste (saisie, correction,
+suppression, export/import, `localStorage`) fonctionne normalement — seul
+l'envoi vers Google est coupé.
+
+Point à garder en tête : ce paramètre ne touche QUE l'envoi vers le Form,
+pas `localStorage` — si le même navigateur contient déjà des données
+(improbable sur le PC de Nico, qui n'est jamais celui de Natacha), elles
+restent visibles avec ou sans `?nobackup`, puisque c'est la même origine.
+
 ## Historique de conception
 
 Développé itérativement via Claude.ai (Artifacts) avec Nico, non-développeur,
