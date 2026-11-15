@@ -205,6 +205,47 @@ les entrées anciennes (le solde est la somme de `entries.heures`, en
 supprimer le change silencieusement) — **consolider** : une entrée de report
 unique qui porte leur somme, comme un solde à nouveau bancaire.
 
+**Vérifié en usage réel le 15/11/2026** : 9 lignes reçues depuis la mise en
+place (hors `TEST123`), la dernière le 10/11/2026, avec 13 mouvements réels
+de Natacha dedans (dates du 12/09 au 10/11, notes comme "Lits Libourne"). La
+sauvegarde fonctionne en production, pas seulement en test.
+
+## Mettre à jour l'app sans risquer les données de Natacha
+
+Les heures de Natacha vivent dans le `localStorage` de son téléphone — une
+mémoire de navigateur totalement séparée de ce que GitHub Pages sert. Pousser
+du code sur `main` ne touche **jamais** `localStorage`, y compris via le
+service worker : son cache ne gère que les fichiers de l'app, jamais le
+stockage des données.
+
+**Les deux seules choses qui peuvent vraiment casser ses données :**
+- Changer `STORAGE_KEY` (`natacha_pool_heures_v1`) — l'app lirait une
+  mémoire vide, ses données resteraient présentes mais invisibles.
+- Changer le modèle d'une entrée (champ renommé, type changé) sans
+  rétrocompatibilité — `isValidEntry()` rejetterait silencieusement ses
+  entrées existantes au prochain chargement.
+
+Tout le reste (UI, règles métier, nouveaux boutons) ne peut pas toucher à
+ses données, même en cas de bug — au pire l'affichage casse, ses heures en
+`localStorage` restent intactes.
+
+**Processus à suivre pour chaque changement** (celui déjà appliqué à chaque
+évolution de ce projet) :
+1. Développer sur une branche, jamais directement sur `main`.
+2. Tester en Playwright (suite de non-régression : création, correction,
+   suppression, week-end, hors ligne, export/import) avant de pousser —
+   jamais tester directement sur le téléphone de Natacha.
+3. Incrémenter `APP_VERSION`.
+4. Pousser, puis vérifier le déploiement via l'API GitHub (voir section
+   *Déploiement*) avant de considérer que c'est en ligne.
+
+**Règle absolue, jamais d'exception** : si un rafraîchissement forcé est un
+jour nécessaire côté Natacha, ne jamais lui demander d'« effacer les données
+de navigation » ou « cookies et données de site » — ça viderait son
+`localStorage` avec le cache, donc ses heures. Seule demande légitime :
+« vider les images et fichiers en cache », qui laisse `localStorage` intact.
+`APP_VERSION` + rechargement suffit dans l'immense majorité des cas.
+
 ## Historique de conception
 
 Développé itérativement via Claude.ai (Artifacts) avec Nico, non-développeur,
