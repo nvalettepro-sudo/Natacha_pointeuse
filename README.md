@@ -13,10 +13,16 @@ installable sur Android et utilisable hors ligne.
   et/ou de départ (plus tard) par rapport à son horaire de base. L'écart est ajouté au pool.
 - **Je prends des heures** : même principe inversé — arriver plus tard et/ou partir plus tôt
   déduit du pool. Le pool peut devenir négatif.
-- **Horaires de base** : 9h–18h30 du lundi au jeudi, 9h–17h30 le vendredi. Le week-end,
-  les horaires sont libres (aucun horaire de base).
+- **Horaires de base** : 9h–18h30 du lundi au jeudi, 9h–17h30 le vendredi, avec une pause
+  déjeuner de 12h30 à 14h. Le week-end, les horaires sont libres (aucun horaire de base,
+  aucune pause).
+- **Pause déjeuner** : en semaine, « Mes horaires » propose un début et une fin de pause.
+  Seule la durée compte : décaler sa pause sans la raccourcir ne change rien, la raccourcir
+  ajoute au pool, l'allonger en retire. « Pas de pause » ajoute 1h30. Une journée
+  « Mes horaires » peut donc être négative.
 - **Historique** : consultable en journal, par semaine (ISO) ou par mois, avec suppression
-  possible d'une entrée erronée.
+  possible d'une entrée erronée. Les vues par semaine et par mois affichent l'écart net de
+  chaque journée, heures prises comprises : leur total correspond à l'évolution du pool.
 - **Correction** : toucher une journée du journal la recharge dans le formulaire, telle
   qu'elle a été saisie. Natacha ajuste les horaires et revalide — le bouton indique
   "Corriger la journée" et la ligne concernée reste surlignée.
@@ -85,8 +91,8 @@ quelqu'un d'autre, la Sheet et le dossier sont privés) :
    automatiquement dès que le réseau revient — le pied de page affiche alors
    "Hors ligne — sauvegarde en attente".
 5. **Limite à surveiller, pas encore atteinte** : une cellule Google Sheets
-   plafonne à 50 000 caractères. Au rythme d'usage actuel, ça laisse environ
-   3 ans avant saturation. Le détail technique (et la méthode à suivre le jour
+   plafonne à 50 000 caractères, soit environ 395 mouvements. Au rythme réel
+   de Natacha, ça laisse environ 5 ans avant saturation. Le détail technique (et la méthode à suivre le jour
    venu — consolider, jamais supprimer l'historique) est dans `CLAUDE.md`.
 
 ### En complément

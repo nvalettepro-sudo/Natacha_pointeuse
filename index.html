@@ -287,6 +287,39 @@
   }
   .delta-preview.zero{ color:var(--ink-muted); font-family:var(--font-sans); font-weight:600; font-size:.78rem; }
   .delta-preview.taking{ color:var(--accent-take); }
+  .delta-detail{
+    display:block;
+    font-family:var(--font-sans);
+    font-weight:600;
+    font-size:.7rem;
+    color:var(--ink-muted);
+    margin-top:.1rem;
+  }
+  /* Arrivée · Début pause / séparateur / Fin pause · Départ. Le week-end
+     (classe no-pause), les deux champs de pause disparaissent et Arrivée ·
+     Départ se retrouvent seuls sur une ligne, comme avant. */
+  .time-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    column-gap:.6rem;
+    row-gap:.5rem;
+    margin-bottom:.5rem;
+  }
+  .time-grid .pause-divider{ grid-column:1 / -1; }
+  .time-grid.no-pause .pause-only{ display:none; }
+  .pause-divider{
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    color:var(--ink-muted);
+    font-size:.7rem;
+    font-weight:600;
+    margin:-.1rem 0 -.15rem;
+  }
+  .pause-divider::before, .pause-divider::after{ content:""; flex:1; height:1px; background:var(--border); }
+  /* Champ qui s'écarte de la base, coloré selon son effet sur le pool. */
+  select.eff-gain{ border-color:var(--accent-add); background-color:var(--accent-add-soft); color:var(--accent-add); font-weight:700; }
+  select.eff-loss{ border-color:var(--accent-take); background-color:var(--accent-take-soft); color:var(--accent-take); font-weight:700; }
   .submit-btn{
     width:100%;
     border:none;
@@ -378,6 +411,8 @@
     text-transform:capitalize;
   }
   .week-day span{ color:var(--accent-add); font-weight:600; }
+  .week-day span.loss{ color:var(--accent-take); }
+  .week-day span.zero{ color:var(--ink-muted); }
   .week-total{
     display:flex;
     justify-content:space-between;
@@ -388,6 +423,8 @@
     padding-top:.4rem;
   }
   .week-total span{ color:var(--accent-add); }
+  .week-total span.loss{ color:var(--accent-take); }
+  .week-total span.zero{ color:var(--ink-muted); }
   .month-divider{
     color:var(--ink-muted);
     font-size:.78rem;
@@ -637,10 +674,19 @@
     </div>
 
     <div id="horaireFields">
-      <div class="field-row">
+      <div class="time-grid" id="timeGrid">
         <div class="field">
           <label for="arrivalSelect">Arrivée</label>
           <select id="arrivalSelect"></select>
+        </div>
+        <div class="field pause-only">
+          <label for="pauseStartSelect">Début pause</label>
+          <select id="pauseStartSelect"></select>
+        </div>
+        <div class="pause-divider pause-only">pause déjeuner</div>
+        <div class="field pause-only">
+          <label for="pauseEndSelect">Fin pause</label>
+          <select id="pauseEndSelect"></select>
         </div>
         <div class="field">
           <label for="departureSelect">Départ</label>
@@ -728,7 +774,7 @@
   "use strict";
 
   // Seul endroit a modifier pour changer le numero affiche en bas de page.
-  const APP_VERSION = "1.4";
+  const APP_VERSION = "1.5";
   const STORAGE_KEY = "natacha_pool_heures_v1";
   let entries = [];
   let storageOK = true;
@@ -802,7 +848,10 @@
   // Un seul format pour les trois usages : le fichier exporte, ce qu'on colle
   // pour restaurer, et ce qui part vers la Google Sheet. Plus compact que le
   // JSON (donc une Sheet qui dure plus longtemps) et lisible tel quel par Nico.
-  const CSV_HEADER = ["id","date","type","heures","arrivalMin","departureMin","standardStart","standardEnd","weekend","note","createdAt"];
+  // Les colonnes de pause (v1.5) sont en fin de ligne : l'import lit par nom de
+  // colonne, donc les sauvegardes antérieures, qui ne les ont pas, restent lisibles.
+  const CSV_HEADER = ["id","date","type","heures","arrivalMin","departureMin","standardStart","standardEnd","weekend","note","createdAt","pauseStartMin","pauseEndMin","standardPauseStart","standardPauseEnd"];
+  const numOrEmpty = v => (typeof v === "number" && !isNaN(v)) ? v : "";
 
   function csvEscapeField(v){
     const s = (v === null || v === undefined) ? "" : String(v);
@@ -823,7 +872,11 @@
         (e.standardEnd === null || e.standardEnd === undefined) ? "" : e.standardEnd,
         e.weekend ? "true" : "false",
         e.note || "",
-        e.createdAt ? new Date(e.createdAt).toISOString() : ""
+        e.createdAt ? new Date(e.createdAt).toISOString() : "",
+        numOrEmpty(e.pauseStartMin),
+        numOrEmpty(e.pauseEndMin),
+        numOrEmpty(e.standardPauseStart),
+        numOrEmpty(e.standardPauseEnd)
       ];
       lines.push(row.map(csvEscapeField).join(";"));
     });
@@ -920,6 +973,12 @@
         entry.standardEnd = se === "" ? null : parseInt(se, 10);
         const weekendRaw = get(row,"weekend").toLowerCase();
         entry.weekend = weekendRaw === "true" || weekendRaw === "vrai" || weekendRaw === "1";
+        // Colonnes absentes (sauvegarde antérieure) ou vides : on n'ajoute pas
+        // le champ, l'entrée garde alors la pause de base.
+        ["pauseStartMin","pauseEndMin","standardPauseStart","standardPauseEnd"].forEach(k => {
+          const v = get(row, k);
+          if(v !== ""){ const n = parseInt(v, 10); if(!isNaN(n)) entry[k] = n; }
+        });
       }
       out.push(entry);
     }
@@ -992,11 +1051,29 @@
 
   // ---------- horaires standard ----------
   const DAY_MIN = 24*60;
+  // Pause déjeuner de base, du lundi au vendredi. Pas de pause le week-end.
+  const PAUSE_START = 12*60+30, PAUSE_END = 14*60;
   function getStandardSchedule(dateISO){
     const day = new Date(dateISO + "T00:00:00").getDay(); // 0=dim … 6=sam
     if(day === 0 || day === 6) return { weekend: true };
-    if(day === 5) return { start: 9*60, end: 17*60+30, weekend: false }; // vendredi 9h–17h30
-    return { start: 9*60, end: 18*60+30, weekend: false }; // lun–jeu 9h–18h30
+    const pause = { pauseStart: PAUSE_START, pauseEnd: PAUSE_END };
+    if(day === 5) return { start: 9*60, end: 17*60+30, weekend: false, ...pause }; // vendredi 9h–17h30
+    return { start: 9*60, end: 18*60+30, weekend: false, ...pause }; // lun–jeu 9h–18h30
+  }
+  // Écart d'une journée « Mes horaires » en semaine. Seule la durée de la
+  // pause compte : la décaler sans la raccourcir ni l'allonger ne change rien.
+  function weekdayHoraireDelta(sched, arrival, departure, pauseStart, pauseEnd){
+    const basePause = sched.pauseEnd - sched.pauseStart;
+    return (sched.start - arrival)/60 + (departure - sched.end)/60 + (basePause - (pauseEnd - pauseStart))/60;
+  }
+  // Les entrées enregistrées avant la v1.5 n'ont pas de champs de pause : leur
+  // pause est celle de la base. On ne recalcule jamais leurs `heures`.
+  function entryPause(e){
+    const s = typeof e.pauseStartMin === "number" ? e.pauseStartMin : PAUSE_START;
+    const en = typeof e.pauseEndMin === "number" ? e.pauseEndMin : PAUSE_END;
+    const ss = typeof e.standardPauseStart === "number" ? e.standardPauseStart : PAUSE_START;
+    const se = typeof e.standardPauseEnd === "number" ? e.standardPauseEnd : PAUSE_END;
+    return { start: s, end: en, isBase: s === ss && en === se };
   }
   function formatTimeLabel(min){
     if(min >= DAY_MIN) return "minuit";
@@ -1033,6 +1110,10 @@
       }
       const parts = [];
       if(e.arrivalMin !== e.standardStart) parts.push(`Arrivée ${formatTimeLabel(e.arrivalMin)}`);
+      if(e.type === "horaire"){
+        const p = entryPause(e);
+        if(!p.isBase) parts.push(p.end === p.start ? "Pas de pause" : `Pause ${formatTimeLabel(p.start)} → ${formatTimeLabel(p.end)}`);
+      }
       if(e.departureMin !== e.standardEnd) parts.push(`Départ ${formatTimeLabel(e.departureMin)}`);
       let desc = parts.join(" · ");
       if(e.note) desc += (desc ? " — " : "") + e.note;
@@ -1121,7 +1202,9 @@
         html += `<div class="month-divider">${formatMonthLabel(e.date)}</div>`;
         lastMonth = mk;
       }
-      const cssClass = e.type === "prise" ? "prise" : "ajout";
+      // Le signe décide de la couleur : depuis la pause déjeuner, une journée
+      // « Mes horaires » peut aussi retirer des heures.
+      const cssClass = e.heures < -1e-9 ? "prise" : "ajout";
       const signedAmount = (e.heures < 0 ? "−" : "+") + formatHeures(Math.abs(e.heures)).replace("−","");
       const descText = entryDescription(e);
       const noteHtml = descText ? `<div class="note">${escapeHtml(descText)}</div>` : "";
@@ -1170,42 +1253,59 @@
     });
   }
 
+  // Vues Semaine et Mois : écart net de chaque journée, prises comprises, pour
+  // que le total d'une période égale l'évolution réelle du pool.
+  function signedHeures(h){
+    if(Math.abs(h) <= 1e-9) return "0 h";
+    return (h < 0 ? "−" : "+") + formatHeures(Math.abs(h)).replace("−","");
+  }
+  function signClass(h){
+    if(Math.abs(h) <= 1e-9) return "zero";
+    return h < 0 ? "loss" : "";
+  }
+  // Regroupe les entrées par période (clé fournie), puis par jour (net du jour).
+  function groupNetByDay(keyOf){
+    const groups = {};
+    entries.forEach(e => {
+      const key = keyOf(e.date);
+      if(!groups[key]) groups[key] = { key, firstDate: e.date, days: {}, total: 0 };
+      const g = groups[key];
+      g.days[e.date] = (g.days[e.date] || 0) + e.heures;
+      g.total += e.heures;
+      if(e.date < g.firstDate) g.firstDate = e.date;
+    });
+    return groups;
+  }
+
   function renderWeekly(){
     const list = document.getElementById("historyList");
-    const additions = entries.filter(e => e.type === "horaire" && e.heures > 1e-9);
-
-    if(additions.length === 0){
-      list.innerHTML = `<div class="empty-state">Aucune heure ajoutée pour l'instant.</div>`;
+    if(entries.length === 0){
+      list.innerHTML = `<div class="empty-state">Aucun mouvement pour l'instant.</div>`;
       return;
     }
-
-    const groups = {};
-    additions.forEach(e => {
-      const { week, year } = getISOWeek(e.date);
-      const key = `${year}-${String(week).padStart(2,"0")}`;
-      if(!groups[key]) groups[key] = { week, year, monday: getWeekMonday(e.date), items: [], total: 0 };
-      groups[key].items.push(e);
-      groups[key].total += e.heures;
+    const groups = groupNetByDay(date => {
+      const { week, year } = getISOWeek(date);
+      return `${year}-${String(week).padStart(2,"0")}`;
     });
-
     const keys = Object.keys(groups).sort().reverse();
     let html = "";
     keys.forEach(key => {
       const g = groups[key];
-      g.items.sort((a,b) => a.date < b.date ? -1 : 1);
-      const sunday = new Date(g.monday);
+      const { week } = getISOWeek(g.firstDate);
+      const monday = getWeekMonday(g.firstDate);
+      const sunday = new Date(monday);
       sunday.setDate(sunday.getDate() + 6);
-      const rangeLabel = `${new Intl.DateTimeFormat("fr-FR",{day:"numeric"}).format(g.monday)} – ${new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"}).format(sunday)}`;
+      const rangeLabel = `${new Intl.DateTimeFormat("fr-FR",{day:"numeric"}).format(monday)} – ${new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"}).format(sunday)}`;
       let daysHtml = "";
-      g.items.forEach(e => {
-        const dayName = new Intl.DateTimeFormat("fr-FR", { weekday:"long" }).format(new Date(e.date + "T00:00:00"));
-        daysHtml += `<div class="week-day">${dayName}<span>+${formatHeures(e.heures)}</span></div>`;
+      Object.keys(g.days).sort().forEach(d => {
+        const dayName = new Intl.DateTimeFormat("fr-FR", { weekday:"long" }).format(new Date(d + "T00:00:00"));
+        daysHtml += `<div class="week-day">${dayName}<span class="${signClass(g.days[d])}">${signedHeures(g.days[d])}</span></div>`;
       });
       html += `
         <div class="week-block">
-          <div class="week-header">Semaine ${g.week}<span>${rangeLabel}</span></div>
+          <div class="week-header">Semaine ${week}<span>${rangeLabel}</span></div>
           ${daysHtml}
-          <div class="week-total">Total semaine<span>+${formatHeures(g.total)}</span></div>
+          <div class="week-total">Total semaine<span class="${signClass(g.total)}">${signedHeures(g.total)}</span></div>
         </div>`;
     });
     list.innerHTML = html;
@@ -1213,35 +1313,25 @@
 
   function renderMonthly(){
     const list = document.getElementById("historyList");
-    const additions = entries.filter(e => e.type === "horaire" && e.heures > 1e-9);
-
-    if(additions.length === 0){
-      list.innerHTML = `<div class="empty-state">Aucune heure ajoutée pour l'instant.</div>`;
+    if(entries.length === 0){
+      list.innerHTML = `<div class="empty-state">Aucun mouvement pour l'instant.</div>`;
       return;
     }
-
-    const groups = {};
-    additions.forEach(e => {
-      const key = monthKey(e.date);
-      if(!groups[key]) groups[key] = { key, items: [], total: 0 };
-      groups[key].items.push(e);
-      groups[key].total += e.heures;
-    });
-
+    const groups = groupNetByDay(monthKey);
     const keys = Object.keys(groups).sort().reverse();
     let html = "";
     keys.forEach(key => {
       const g = groups[key];
-      g.items.sort((a,b) => a.date < b.date ? -1 : 1);
+      const dates = Object.keys(g.days).sort();
       let daysHtml = "";
-      g.items.forEach(e => {
-        daysHtml += `<div class="week-day">${formatDayShort(e.date)}<span>+${formatHeures(e.heures)}</span></div>`;
+      dates.forEach(d => {
+        daysHtml += `<div class="week-day">${formatDayShort(d)}<span class="${signClass(g.days[d])}">${signedHeures(g.days[d])}</span></div>`;
       });
       html += `
         <div class="week-block">
-          <div class="week-header">${formatMonthLabel(g.items[0].date)}<span>${g.items.length} jour${g.items.length>1?"s":""}</span></div>
+          <div class="week-header">${formatMonthLabel(g.firstDate)}<span>${dates.length} jour${dates.length>1?"s":""}</span></div>
           ${daysHtml}
-          <div class="week-total">Total mois<span>+${formatHeures(g.total)}</span></div>
+          <div class="week-total">Total mois<span class="${signClass(g.total)}">${signedHeures(g.total)}</span></div>
         </div>`;
     });
     list.innerHTML = html;
@@ -1283,6 +1373,9 @@
   const priseFields = document.getElementById("priseFields");
   const arrivalSelect = document.getElementById("arrivalSelect");
   const departureSelect = document.getElementById("departureSelect");
+  const pauseStartSelect = document.getElementById("pauseStartSelect");
+  const pauseEndSelect = document.getElementById("pauseEndSelect");
+  const timeGrid = document.getElementById("timeGrid");
   const priseArrivalSelect = document.getElementById("priseArrivalSelect");
   const priseDepartureSelect = document.getElementById("priseDepartureSelect");
   const scheduleInfo = document.getElementById("scheduleInfo");
@@ -1301,7 +1394,9 @@
   function populateForm(dateISO){
     const sched = getStandardSchedule(dateISO);
     currentSchedule = sched;
-    scheduleInfo.textContent = sched.weekend ? "Week-end" : `${formatTimeLabel(sched.start)} – ${formatTimeLabel(sched.end)}`;
+    scheduleInfo.textContent = sched.weekend
+      ? "Week-end"
+      : `${formatTimeLabel(sched.start)}–${formatTimeLabel(sched.pauseStart)} · ${formatTimeLabel(sched.pauseEnd)}–${formatTimeLabel(sched.end)}`;
 
     if(mode === "horaire") populateHoraireSelects(dateISO, sched);
     else populatePriseSelects(dateISO, sched);
@@ -1329,10 +1424,46 @@
     window.scrollTo({ top:0, behavior:"smooth" });
   }
 
+  function addOption(select, value, label){
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    select.appendChild(o);
+  }
+  function setSelectValue(select, value){
+    select.value = String(value);
+    if(select.value === "") select.selectedIndex = 0; // valeur hors liste : on retombe sur la base
+  }
+  // Pauses au pas de 30 min, de 30 min après le début de base jusqu'à 30 min
+  // avant la fin de base (18h, 17h le vendredi). Arrivée ≤ base et départ ≥
+  // base dans cet onglet : la pause tombe donc toujours dans la journée.
+  function pauseMax(sched){ return sched.end - 30; }
+  function populatePauseStart(sched, value){
+    pauseStartSelect.innerHTML = "";
+    addOption(pauseStartSelect, sched.pauseStart, `Base (${formatTimeLabel(sched.pauseStart)})`);
+    buildRangeOptions(sched.start + 30, pauseMax(sched)).forEach(t => {
+      if(t !== sched.pauseStart) addOption(pauseStartSelect, t, formatTimeLabel(t));
+    });
+    setSelectValue(pauseStartSelect, value);
+    pauseStartSelect.dataset.prev = pauseStartSelect.value;
+  }
+  // La liste de fin démarre au début choisi : une fin avant le début est
+  // impossible. « Pas de pause » = fin égale au début.
+  function populatePauseEnd(sched, startMin, value){
+    pauseEndSelect.innerHTML = "";
+    if(sched.pauseEnd > startMin) addOption(pauseEndSelect, sched.pauseEnd, `Base (${formatTimeLabel(sched.pauseEnd)})`);
+    addOption(pauseEndSelect, startMin, "Pas de pause");
+    buildRangeOptions(startMin + 30, pauseMax(sched)).forEach(t => {
+      if(t !== sched.pauseEnd) addOption(pauseEndSelect, t, formatTimeLabel(t));
+    });
+    setSelectValue(pauseEndSelect, value);
+  }
+
   function populateHoraireSelects(dateISO, sched){
     const existing = entries.find(e => e.date === dateISO && e.type === "horaire");
     arrivalSelect.disabled = false;
     departureSelect.disabled = false;
+    timeGrid.classList.toggle("no-pause", !!sched.weekend);
 
     if(sched.weekend){
       arrivalSelect.innerHTML = "";
@@ -1375,6 +1506,11 @@
         departureSelect.appendChild(o);
       });
       departureSelect.value = String(existing ? existing.departureMin : sched.end);
+
+      // Entrée d'avant la v1.5 : pas de champs de pause, donc pause de base.
+      const p = existing ? entryPause(existing) : { start: sched.pauseStart, end: sched.pauseEnd };
+      populatePauseStart(sched, p.start);
+      populatePauseEnd(sched, parseInt(pauseStartSelect.value, 10), p.end);
     }
   }
 
@@ -1439,25 +1575,57 @@
     priseDepartureSelect.value = String(existing ? existing.departureMin : sched.end);
   }
 
+  // Colore un champ selon son effet sur le pool : vert s'il ajoute du temps
+  // travaillé, orange s'il en retire, neutre s'il est à la base.
+  function markEffect(select, effectMin){
+    select.classList.toggle("eff-gain", effectMin > 0);
+    select.classList.toggle("eff-loss", effectMin < 0);
+  }
+
   function updateDeltaPreview(){
     let delta = 0;
     if(mode === "horaire"){
+      let detail = "";
       if(currentSchedule.weekend){
         const a = arrivalSelect.value, d = departureSelect.value;
         if(a !== "" && d !== "") delta = (parseInt(d,10) - parseInt(a,10)) / 60;
+        [arrivalSelect, departureSelect, pauseStartSelect, pauseEndSelect].forEach(s => markEffect(s, 0));
       } else {
+        const sched = currentSchedule;
         const arrival = parseInt(arrivalSelect.value, 10);
         const departure = parseInt(departureSelect.value, 10);
-        delta = (currentSchedule.start - arrival)/60 + (departure - currentSchedule.end)/60;
+        const ps = parseInt(pauseStartSelect.value, 10);
+        const pe = parseInt(pauseEndSelect.value, 10);
+        delta = weekdayHoraireDelta(sched, arrival, departure, ps, pe);
+        markEffect(arrivalSelect, sched.start - arrival);
+        markEffect(departureSelect, departure - sched.end);
+        markEffect(pauseStartSelect, ps - sched.pauseStart);
+        markEffect(pauseEndSelect, sched.pauseEnd - pe);
+        const baseDur = sched.pauseEnd - sched.pauseStart;
+        const dur = pe - ps;
+        if(dur !== baseDur){
+          detail = dur === 0
+            ? `pas de pause au lieu de ${formatHeures(baseDur/60)}`
+            : `pause de ${formatHeures(dur/60)} au lieu de ${formatHeures(baseDur/60)}`;
+        }
       }
-      const zero = delta <= 1e-9;
-      deltaPreview.textContent = zero ? "Aucun changement" : "+" + formatHeures(delta);
+      const zero = Math.abs(delta) <= 1e-9;
+      deltaPreview.textContent = zero ? "Aucun changement" : signedHeures(delta);
+      if(!zero && detail){
+        const span = document.createElement("span");
+        span.className = "delta-detail";
+        span.textContent = detail;
+        deltaPreview.appendChild(span);
+      }
       deltaPreview.classList.toggle("zero", zero);
+      deltaPreview.classList.toggle("taking", !zero && delta < 0);
     } else {
       if(!currentSchedule.weekend){
         const arrival = parseInt(priseArrivalSelect.value, 10);
         const departure = parseInt(priseDepartureSelect.value, 10);
         delta = Math.max(0, arrival - currentSchedule.start)/60 + Math.max(0, currentSchedule.end - departure)/60;
+        markEffect(priseArrivalSelect, currentSchedule.start - arrival);
+        markEffect(priseDepartureSelect, departure - currentSchedule.end);
       }
       const zero = delta <= 1e-9;
       priseDeltaPreview.textContent = zero ? "Aucun changement" : "−" + formatHeures(delta);
@@ -1470,6 +1638,20 @@
     updateDeltaPreview();
   });
   departureSelect.addEventListener("change", updateDeltaPreview);
+  // Changer le début de pause déplace la pause en gardant sa durée : décaler
+  // sa pause se fait en un geste, sans effet sur le pool. On ajuste ensuite
+  // la fin pour la raccourcir ou l'allonger.
+  pauseStartSelect.addEventListener("change", () => {
+    const sched = currentSchedule;
+    const prev = parseInt(pauseStartSelect.dataset.prev, 10);
+    const oldEnd = parseInt(pauseEndSelect.value, 10);
+    const dur = (isNaN(prev) || isNaN(oldEnd)) ? (sched.pauseEnd - sched.pauseStart) : oldEnd - prev;
+    const start = parseInt(pauseStartSelect.value, 10);
+    populatePauseEnd(sched, start, Math.min(start + dur, pauseMax(sched)));
+    pauseStartSelect.dataset.prev = pauseStartSelect.value;
+    updateDeltaPreview();
+  });
+  pauseEndSelect.addEventListener("change", updateDeltaPreview);
   priseArrivalSelect.addEventListener("change", updateDeltaPreview);
   priseDepartureSelect.addEventListener("change", updateDeltaPreview);
   dateInput.addEventListener("change", () => {
@@ -1517,7 +1699,7 @@
     const date = dateInput.value || todayISO();
 
     if(mode === "horaire"){
-      let arrival, departure, delta;
+      let arrival, departure, delta, pauseFields = {};
       if(currentSchedule.weekend){
         if(arrivalSelect.value === "" && departureSelect.value === ""){
           handleReturnToBase(date, "horaire");
@@ -1533,9 +1715,19 @@
       } else {
         arrival = parseInt(arrivalSelect.value, 10);
         departure = parseInt(departureSelect.value, 10);
-        delta = (currentSchedule.start - arrival)/60 + (departure - currentSchedule.end)/60;
+        const ps = parseInt(pauseStartSelect.value, 10);
+        const pe = parseInt(pauseEndSelect.value, 10);
+        delta = weekdayHoraireDelta(currentSchedule, arrival, departure, ps, pe);
+        pauseFields = {
+          pauseStartMin: ps,
+          pauseEndMin: pe,
+          standardPauseStart: currentSchedule.pauseStart,
+          standardPauseEnd: currentSchedule.pauseEnd
+        };
       }
-      if(delta <= 1e-9){
+      // Une journée « Mes horaires » peut désormais être négative (pause
+      // élargie) : seul un écart nul ramène à la base.
+      if(Math.abs(delta) <= 1e-9){
         handleReturnToBase(date, "horaire");
         return;
       }
@@ -1551,7 +1743,8 @@
         standardEnd: currentSchedule.weekend ? null : currentSchedule.end,
         weekend: !!currentSchedule.weekend,
         note: noteInput.value.trim().slice(0,80),
-        createdAt: existingIdx >= 0 ? entries[existingIdx].createdAt : Date.now()
+        createdAt: existingIdx >= 0 ? entries[existingIdx].createdAt : Date.now(),
+        ...pauseFields
       };
       const wasExisting = existingIdx >= 0;
       if(wasExisting) entries[existingIdx] = entryData;
@@ -1560,7 +1753,7 @@
       saveEntries();
       render();
       populateForm(date);
-      showToast(wasExisting ? "Journée mise à jour ✓" : "Heures ajoutées ✓");
+      showToast(wasExisting ? "Journée mise à jour ✓" : (delta > 0 ? "Heures ajoutées ✓" : "Heures prises ✓"));
     } else {
       if(currentSchedule.weekend){
         showToast("Natacha ne travaille pas le week-end : rien à prendre.");
@@ -1631,6 +1824,16 @@
     }
   });
 
+  // Ne recopie que les champs de pause réellement présents et numériques :
+  // une entrée sans pause doit le rester (= pause de base).
+  function pauseFieldsOf(x){
+    const out = {};
+    ["pauseStartMin","pauseEndMin","standardPauseStart","standardPauseEnd"].forEach(k => {
+      if(typeof x[k] === "number" && !isNaN(x[k])) out[k] = x[k];
+    });
+    return out;
+  }
+
   // Chemin commun au fichier et au collage : parse (CSV ou JSON en filet),
   // nettoie, demande confirmation puis remplace entries.
   function applyBackupText(text){
@@ -1658,7 +1861,8 @@
         standardStart: x.standardStart,
         standardEnd: x.standardEnd,
         weekend: !!x.weekend
-      } : {})
+      } : {}),
+      ...(x.type === "horaire" ? pauseFieldsOf(x) : {})
     }));
     if(clean.length === 0){
       showToast("Sauvegarde vide ou illisible.");

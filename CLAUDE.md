@@ -24,11 +24,15 @@ Aucun build, aucune dépendance : ce sont des fichiers statiques servis tels que
 
 ## Règles métier
 
-- Horaire de base : lundi-jeudi 9h–18h30, vendredi 9h–17h30. Week-end : pas
-  d'horaire de base (Natacha ne travaille normalement pas, mais peut ponctuellement
-  faire des heures — les deux sélecteurs proposent alors la plage 1h–minuit).
-- **Mes horaires** (ajoute au pool) : arrivée avant la base (jusqu'à 1h du matin)
-  et/ou départ après la base (jusqu'à minuit) → gain ajouté au pool.
+- Horaire de base : lundi-jeudi 9h–18h30, vendredi 9h–17h30, avec une **pause
+  déjeuner de base 12h30–14h** (journée de 8h, 7h le vendredi). Week-end : pas
+  d'horaire de base ni de pause (Natacha ne travaille normalement pas, mais peut
+  ponctuellement faire des heures — les deux sélecteurs proposent alors la plage
+  1h–minuit).
+- **Mes horaires** : arrivée avant la base (jusqu'à 1h du matin), départ après la
+  base (jusqu'à minuit), et en semaine début/fin de pause (voir section *Pause
+  déjeuner*). L'écart peut être **positif ou négatif** : une pause allongée
+  retire des heures au pool, même depuis cet onglet.
 - **Je prends des heures** (retire du pool) : arrivée après la base et/ou départ
   avant la base (bornes symétriques à l'intérieur de la journée de base) → perte
   déduite du pool. Le pool peut devenir négatif.
@@ -55,8 +59,12 @@ Chaque entrée :
 ```
 { id, date (YYYY-MM-DD), type: "horaire"|"prise", heures (decimal signé, + ou -),
   arrivalMin, departureMin (minutes depuis 00:00), standardStart, standardEnd
-  (base du jour, null si week-end), weekend (bool), note, createdAt }
+  (base du jour, null si week-end), weekend (bool), note, createdAt,
+  pauseStartMin, pauseEndMin, standardPauseStart, standardPauseEnd }
 ```
+Les quatre champs de pause (v1.5) n'existent que sur les entrées « horaire » de
+semaine. Une entrée qui ne les a pas (toutes celles d'avant la v1.5, les
+prises, le week-end) a la pause de base. `heures` est stocké, jamais recalculé.
 Solde du pool = somme de `heures` sur toutes les entrées.
 
 ## Contraintes UI
@@ -170,8 +178,14 @@ si l'URL ou le champ changent.
 **Format du payload : CSV** (`;`), fonctions `entriesToCSV()` /
 `entriesFromCSV()` dans `index.html`. Même format que l'export/import — pas
 un format à part. Deux raisons : lisible tel quel par Nico dans la Sheet, et
-~2,7× plus compact que le JSON (~71 car./entrée), ce qui repousse la limite
-de 50 000 car. par cellule Google Sheets à ~3,2 ans (à ~18 mouvements/mois).
+plus compact que le JSON. **Taille réelle mesurée le 16/11/2026** (les
+estimations antérieures, ~71 car./entrée et ~3,2 ans, reposaient sur un
+identifiant court et étaient fausses) : ~126 car./entrée en v1.5 (UUID de 36
+car. + date ISO de 24 car. + 4 colonnes de pause), soit ~395 entrées par
+cellule de 50 000 car. — **~5 ans au rythme réel de Natacha** (~6,5
+mouvements/mois sur ses deux premiers mois), ~1,8 an à 18/mois. Leviers
+simples si un jour c'est serré : retirer `standardPauseStart/End` (toujours
+12h30/14h), raccourcir les identifiants.
 
 **Import tolérant** (`parseBackupText()`) : accepte `;` ou `,` en séparateur
 (détecté sur la ligne d'en-tête), `.` ou `,` en décimale, les dates en
@@ -200,7 +214,7 @@ endroit sur son téléphone.
 Sheet avec une formule `SPLIT` qui éclate la dernière ligne reçue en tableau
 (le Form ne donne qu'un bloc CSV brut par cellule) — formule à écrire à la
 demande, elle dépend de la colonne réelle dans la Sheet de Nico. Et au bout
-de ~3,2 ans : la cellule Sheets sature. Le jour venu, **ne jamais supprimer**
+de ~5 ans au rythme actuel : la cellule Sheets sature. Le jour venu, **ne jamais supprimer**
 les entrées anciennes (le solde est la somme de `entries.heures`, en
 supprimer le change silencieusement) — **consolider** : une entrée de report
 unique qui porte leur somme, comme un solde à nouveau bancaire.
@@ -210,71 +224,59 @@ place (hors `TEST123`), la dernière le 10/11/2026, avec 13 mouvements réels
 de Natacha dedans (dates du 12/09 au 10/11, notes comme "Lits Libourne"). La
 sauvegarde fonctionne en production, pas seulement en test.
 
-## Prochaine évolution : pause déjeuner (validée le 15/11/2026, à coder)
+## Pause déjeuner (v1.5, 16/11/2026)
 
-Spécification arrêtée avec Nico sur deux maquettes, **pas encore codée**.
-Version cible : 1.5.
+Spécifiée avec Nico sur deux maquettes le 15/11, codée le 16/11.
 
-**Base** : pause 12h30–14h, du lundi au vendredi (journée de base 8h du
-lundi au jeudi, 7h le vendredi). **Pas de pause le week-end** (pas de base).
+**Formulaire « Mes horaires », en semaine** : grille `#timeGrid` à quatre
+sélecteurs — Arrivée · Début pause / séparateur « pause déjeuner » / Fin
+pause · Départ. Champ Base : `9h–12h30 · 14h–18h30` (`17h30` le vendredi).
+Le week-end, la classe `no-pause` masque les deux champs de pause et Arrivée
+· Départ reviennent sur une seule ligne.
 
-**Formulaire « Mes horaires » (jours ouvrés)** — deux lignes de sélecteurs :
-- Ligne 1 : Arrivée (existant) · **Début pause**
-- séparateur discret « pause déjeuner »
-- Ligne 2 : **Fin pause** · Départ (existant)
-- Champ Base : `9h–12h30 · 14h–18h30` (`17h30` le vendredi).
-- Libellés courts « Début pause » / « Fin pause » (place limitée sur S25 FE).
-- Hauteur mesurée sur maquette : carte formulaire 257 → 339 px, bouton
-  Enregistrer vers ~530 px sur 891 — contrainte « sans scroller » tenue.
+**Sélecteurs** (pas de 30 min, `populatePauseStart` / `populatePauseEnd`) :
+- Début : « Base (12h30) » puis 9h30 → 18h (17h le vendredi).
+- Fin : « Base (14h) » (seulement si elle tombe après le début), puis
+  **« Pas de pause »** (fin = début), puis début + 30 min → 18h (17h le
+  vendredi). Liste reconstruite à chaque changement du début : une fin avant
+  le début est impossible.
+- Changer le début **déplace la pause en gardant sa durée** : décaler sa
+  pause se fait en un geste, sans effet sur le pool. On ajuste ensuite la fin.
 
-**Sélecteurs** (pas de 30 min) :
-- Début pause : défaut « Base (12h30) », plage 9h30 → 18h (17h le vendredi).
-- Fin pause : défaut « Base (14h) », 2ᵉ option **« Pas de pause »** (fin =
-  début, 0 min), puis de début+30 min → 18h (17h le vendredi). Liste
-  reconstruite à chaque changement du début, comme le départ le week-end :
-  une fin avant le début est impossible.
-- Plages fixes car en « Mes horaires » arrivée ≤ base et départ ≥ base : la
-  pause tombe toujours dans la journée travaillée.
+**Calcul** (`weekdayHoraireDelta`) : écart arrivée/départ + (1h30 − durée
+réelle de la pause). Seule la durée compte : 15h–16h30 = 0, 15h–16h = +30
+min, 13h–16h = −1h30, pas de pause = +1h30.
 
-**Calcul** : écart = (écart arrivée/départ actuel) + (1h30 − durée réelle de
-la pause). Seule la **durée** compte, pas la position : 15h–16h30 = 0,
-15h–16h = +30 min, 13h–16h = −1h30, pas de pause = +1h30. Nico le sait et le
-veut : la largeur de la pause ajoute ou retire au pool.
+**Affichage** :
+- Aperçu vert si positif, orange si négatif, avec une ligne de détail
+  (« pause de 3 h au lieu de 1 h 30 ») quand la durée de la pause diffère.
+- Chaque champ qui s'écarte de la base est coloré selon **son propre effet**
+  (`markEffect`) : vert s'il ajoute du temps travaillé, orange s'il en
+  retire. Pause décalée à 15h–16h : début vert (+2h30 travaillées), fin
+  orange (−2h), net +30 min. S'applique aussi aux deux champs de « Je prends
+  des heures ».
+- Journal : couleur et signe suivent le signe de `heures`, plus le type.
+  Description « Pause 13h → 16h » ou « Pas de pause » seulement si la pause
+  s'écarte de la base.
+- Vues Semaine / Mois : **écart net par jour, prises comprises** — la somme
+  des totaux égale le solde.
 
-**Conséquence de fond** : une journée « Mes horaires » peut être
-**négative** (ou mixte). Tout ce qui supposait « horaire = gain » doit
-suivre le **signe** de `heures`, plus le type :
-- aperçu (`updateDeltaPreview`) : vert si positif, orange si négatif, plus
-  une ligne de détail (« pause de 3 h au lieu de 1 h 30 ») ;
-- garde `delta <= 1e-9` → `Math.abs(delta) <= 1e-9` (retour à la base) ;
-- toast (« Heures ajoutées » / « Heures prises ») ;
-- couleur et signe dans le journal (`cssClass` aujourd'hui dérivé du type) ;
-- champs modifiés colorés selon leur effet : vert s'ils ajoutent du temps
-  travaillé, orange s'ils en retirent (validé).
-- « Je prends des heures » reste inchangé (pas de pause dans cet onglet).
+**Données** : voir *Modèle de données*. CSV : quatre colonnes en fin de
+ligne ; l'import lit par nom de colonne, les sauvegardes v1.4 restent
+restaurables et ne reçoivent aucune pause inventée.
 
-**Vues Semaine / Mois** : afficher l'**écart net** de chaque journée,
-négatifs compris, **et inclure aussi les prises** de « Je prends des
-heures » (validé) — le total de la période doit égaler l'évolution réelle du
-pool. Aujourd'hui elles filtrent `type === "horaire" && heures > 0` et
-affichent un `+` en dur : à réécrire.
+**Vérifié avant mise en ligne** sur les 13 vraies entrées de Natacha (dernière
+ligne de la Sheet au 10/11) : solde +37 h, stockage relu octet pour octet
+identique, aucun envoi au chargement, totaux Semaine et Mois = 37 h,
+correction d'une ancienne journée → pause chargée à la base et écart
+inchangé, ancienne sauvegarde CSV restaurée sans pause inventée.
 
-**Journal** : description « Pause 13h → 16h » ou « Pas de pause »
-seulement si la pause s'écarte de la base.
-
-**Données — rétrocompatibilité obligatoire** (cas à risque, voir section
-suivante) : ajouter `pauseStartMin`, `pauseEndMin` (et la base de pause du
-jour, comme `standardStart`/`standardEnd`). Une entrée sans ces champs =
-pause de base. `heures` est stocké, jamais recalculé : les 13 mouvements
-existants de Natacha et ses +37h ne bougent pas. CSV : deux colonnes en
-plus, en fin de ligne ; l'import lit par nom de colonne, donc les anciennes
-sauvegardes restent restaurables. Marge de la cellule Sheets ramenée
-d'environ 3,2 à 2,8 ans.
-
-**Test obligatoire avant de pousser** : rejouer dans Playwright les 13
-vraies entrées de Natacha (dernière ligne de la Sheet), vérifier un solde
-de **+37 h**, puis corriger une ancienne journée et vérifier que la pause
-s'y charge à 12h30–14h sans changer son écart.
+**Point ouvert, à trancher avec Nico** : « Je prends des heures » ignore la
+pause, comme avant. Partir à 13h30 compte donc 5 h prises (13h30 → 18h30),
+alors que le temps de travail réellement manqué est 4h30, puisque 13h30–14h
+est sur la pause. La prise du 01/10 de Natacha (départ 13h30, −5 h) est dans
+ce cas. Ne rien corriger sans accord : c'est une règle métier, et les entrées
+déjà enregistrées ne doivent de toute façon pas être recalculées.
 
 ## Mettre à jour l'app sans risquer les données de Natacha
 
