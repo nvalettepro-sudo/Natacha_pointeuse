@@ -29,16 +29,16 @@ Aucun build, aucune dépendance : ce sont des fichiers statiques servis tels que
   d'horaire de base ni de pause (Natacha ne travaille normalement pas, mais peut
   ponctuellement faire des heures — les deux sélecteurs proposent alors la plage
   1h–minuit).
-- **Mes horaires** : arrivée avant la base (jusqu'à 1h du matin), départ après la
-  base (jusqu'à minuit), et en semaine début/fin de pause (voir section *Pause
-  déjeuner*). L'écart peut être **positif ou négatif** : une pause allongée
-  retire des heures au pool, même depuis cet onglet.
-- **Je prends des heures** (retire du pool) : arrivée après la base et/ou départ
-  avant la base (bornes symétriques à l'intérieur de la journée de base) → perte
-  déduite du pool. Le pool peut devenir négatif.
-- Le week-end, "Je prends des heures" est totalement bloqué (Natacha ne peut pas
-  prendre d'heures un jour où elle n'a pas d'horaire de base).
-- Une seule entrée par (date, type) : ressaisir une date existante met à jour
+- **Un seul formulaire depuis la v1.6** (l'onglet « Je prends des heures » a
+  été supprimé, voir section *Formulaire unique*). Écart = temps travaillé
+  réel − temps de base : arriver plus tôt, partir plus tard ou raccourcir la
+  pause ajoute au pool ; arriver plus tard, partir plus tôt ou allonger la
+  pause en retire. Une même journée peut combiner les deux (arrivée 10h +
+  départ 22h = +2h30). « Absente » retire la journée entière (−8h, −7h le
+  vendredi). Le pool peut devenir négatif.
+- Le week-end, seules des heures en plus sont possibles (pas de base, donc
+  rien à retirer).
+- Une seule entrée par date : ressaisir une date existante met à jour
   l'entrée (upsert), ne duplique pas.
 - Si rien n'est modifié par rapport à la base → **aucune entrée enregistrée**
   (pas de bruit à 0h dans l'historique).
@@ -46,9 +46,9 @@ Aucun build, aucune dépendance : ce sont des fichiers statiques servis tels que
   formulaire (date + mode + horaires + note) et passe en mode correction —
   `editingId` mémorise l'entrée, la ligne est surlignée, le bouton devient
   "Corriger la journée" / "Corriger la prise". On sort du mode correction en
-  changeant de date, en basculant de mode, ou après enregistrement.
+  changeant de date ou après enregistrement.
 - **Retour à la base = suppression** : valider une journée dont le delta est nul
-  alors qu'une entrée existe pour ce (date, type) propose de la supprimer
+  alors qu'une entrée existe pour cette date propose de la supprimer
   (confirmation). Delta nul sans entrée existante → simple message, comme avant.
   Côté week-end, l'équivalent est de remettre les deux sélecteurs sur "Week-end".
 
@@ -60,8 +60,11 @@ Chaque entrée :
 { id, date (YYYY-MM-DD), type: "horaire"|"prise", heures (decimal signé, + ou -),
   arrivalMin, departureMin (minutes depuis 00:00), standardStart, standardEnd
   (base du jour, null si week-end), weekend (bool), note, createdAt,
-  pauseStartMin, pauseEndMin, standardPauseStart, standardPauseEnd }
+  pauseStartMin, pauseEndMin, standardPauseStart, standardPauseEnd, absent }
 ```
+Depuis la v1.6, toute nouvelle entrée est de type `horaire`. Le type
+`prise` (ancien onglet) reste lu, affiché et compté tel quel. `absent: true`
+= journée d'absence, avec `arrivalMin`/`departureMin` à `null`.
 Les quatre champs de pause (v1.5) n'existent que sur les entrées « horaire » de
 semaine. Une entrée qui ne les a pas (toutes celles d'avant la v1.5, les
 prises, le week-end) a la pause de base. `heures` est stocké, jamais recalculé.
@@ -93,7 +96,7 @@ qui garantit qu'une mise à jour atteint le téléphone de Natacha.
 Hébergé sur GitHub Pages, branche `main`, dossier racine, `Enforce HTTPS` actif.
 URL : https://nvalettepro-sudo.github.io/Natacha_pointeuse/
 
-**État au 16/11/2026** : version 1.5 en ligne (pause déjeuner), déploiement
+**État au 16/11/2026** : version 1.6 en ligne (formulaire unique), déploiement
 vérifié via l'API. App installée sur le téléphone de Natacha (Samsung S25 FE)
 depuis la v1.2.
 
@@ -181,7 +184,7 @@ si l'URL ou le champ changent.
 un format à part. Deux raisons : lisible tel quel par Nico dans la Sheet, et
 plus compact que le JSON. **Taille réelle mesurée le 16/11/2026** (les
 estimations antérieures, ~71 car./entrée et ~3,2 ans, reposaient sur un
-identifiant court et étaient fausses) : ~126 car./entrée en v1.5 (UUID de 36
+identifiant court et étaient fausses) : ~127 car./entrée en v1.6 (UUID de 36
 car. + date ISO de 24 car. + 4 colonnes de pause), soit ~395 entrées par
 cellule de 50 000 car. — **~5 ans au rythme réel de Natacha** (~6,5
 mouvements/mois sur ses deux premiers mois), ~1,8 an à 18/mois. Leviers
@@ -272,12 +275,58 @@ identique, aucun envoi au chargement, totaux Semaine et Mois = 37 h,
 correction d'une ancienne journée → pause chargée à la base et écart
 inchangé, ancienne sauvegarde CSV restaurée sans pause inventée.
 
-**Point ouvert, à trancher avec Nico** : « Je prends des heures » ignore la
-pause, comme avant. Partir à 13h30 compte donc 5 h prises (13h30 → 18h30),
-alors que le temps de travail réellement manqué est 4h30, puisque 13h30–14h
-est sur la pause. La prise du 01/10 de Natacha (départ 13h30, −5 h) est dans
-ce cas. Ne rien corriger sans accord : c'est une règle métier, et les entrées
-déjà enregistrées ne doivent de toute façon pas être recalculées.
+Depuis la v1.6, la pause fait partie du formulaire unique décrit ci-dessous.
+
+## Formulaire unique (v1.6, 16/11/2026)
+
+Spécifié avec Nico sur la maquette v3, codé le 16/11. L'onglet « Je prends
+des heures » disparaît ; tout passe par un seul formulaire.
+
+**Calcul** (`weekdayDelta`, `workedMin`, `baseWorkedMin`) : écart = temps
+travaillé réel − temps de base (8h, 7h le vendredi). Temps travaillé =
+(départ − arrivée) − pause, où la pause est :
+- la pause choisie, si Natacha est présente pendant toute la pause de base
+  (arrivée ≤ 12h30 et départ ≥ 14h) — `pauseApplicable` ;
+- sinon (demi-journée), la partie de la pause de base comprise dans sa
+  présence (`overlapMin`). Les champs de pause sont alors grisés (« — »).
+  Arrivée 14h = −3h30, départ 12h30 = −4h30, départ 13h30 = −4h30, arrivée
+  13h = −3h30 (la pause de base n'est jamais comptée comme du travail).
+
+Quand la pause est réglable et que l'arrivée et le départ sont à la base, on
+retombe exactement sur la v1.5 (vérifié : 12 des 13 journées réelles de
+Natacha donnent la même valeur ; seule sa prise du 01/10 changerait, voir
+plus bas).
+
+**Sélecteurs** :
+- Arrivée : « Absente », puis 1h → 23h30 en ordre chronologique, « Base (9h) »
+  présélectionnée.
+- Départ : de l'arrivée + 30 min à minuit, « Base (18h30) » présélectionnée.
+  Changer l'arrivée garde le départ et la pause s'ils restent possibles.
+- Pause : comme en v1.5, bornée en plus par la présence (au plus tôt à
+  l'arrivée, au plus tard au départ ou à 30 min avant la fin de base).
+- « Absente » grise le départ et la pause.
+
+**Affichage** : couleur de chaque champ selon son propre effet (arrivée
+tardive orange, départ tardif vert…). Ligne de détail : « travaillé 10 h 30
+au lieu de 8 h » ; si seule la pause s'écarte de la base, formulation v1.5
+conservée (« pause de 3 h au lieu de 1 h 30 ») ; « journée non travaillée »
+pour une absence.
+
+**Anciennes saisies — jamais modifiées d'office** (consigne de Nico) : les
+entrées `prise` restent comptées à leur valeur. Ouvrir une journée la charge
+dans le formulaire unique sans rien changer. La réenregistrer la recalcule
+avec la règle actuelle ; si sa valeur change, ou si la date portait deux
+entrées (ancien horaire + ancienne prise, fusionnées en une), un
+**avertissement** s'affiche avant (choix B de Nico) : « Cette journée avait
+été comptée −5 h selon l'ancienne règle. Elle sera enregistrée à −4 h 30.
+Continuer ? ». Seule journée concernée chez Natacha au 16/11 : le 01/10
+(départ 13h30, −5h sous l'ancienne règle, −4h30 sous la nouvelle).
+
+**Vérifié avant mise en ligne** sur ses 13 vraies entrées : solde +37 h,
+stockage identique octet pour octet, aucun envoi au chargement, totaux
+Semaine et Mois = 37 h, 12 journées identiques sous la nouvelle règle,
+avertissement exact sur le 01/10 (Annuler = rien ne change ; Continuer =
+−4h30, solde 37h30), ancienne sauvegarde v1.4 restaurée telle quelle.
 
 ## Mettre à jour l'app sans risquer les données de Natacha
 
@@ -303,7 +352,10 @@ ses données, même en cas de bug — au pire l'affichage casse, ses heures en
 1. Développer sur une branche, jamais directement sur `main`.
 2. Tester en Playwright (suite de non-régression : création, correction,
    suppression, week-end, hors ligne, export/import) avant de pousser —
-   jamais tester directement sur le téléphone de Natacha.
+   jamais tester directement sur le téléphone de Natacha. **Rejouer aussi ses
+   vraies données** : dernière ligne de la Sheet, chargée dans
+   `localStorage` sous la forme exacte stockée par le téléphone, puis
+   vérifier solde, stockage inchangé et absence d'envoi au chargement.
 3. Incrémenter `APP_VERSION`.
 4. Pousser, puis vérifier le déploiement via l'API GitHub (voir section
    *Déploiement*) avant de considérer que c'est en ligne.

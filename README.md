@@ -20,24 +20,26 @@ installable sur Android et utilisable hors ligne.
 
 ## Fonctionnement
 
-- **Mes horaires** : Natacha choisit une date, puis ajuste son heure d'arrivée (plus tôt)
-  et/ou de départ (plus tard) par rapport à son horaire de base. L'écart est ajouté au pool.
-- **Je prends des heures** : même principe inversé — arriver plus tard et/ou partir plus tôt
-  déduit du pool. Le pool peut devenir négatif.
+- **Un seul formulaire** : Natacha choisit une date, puis son heure d'arrivée, sa pause et
+  son heure de départ. L'app compare son temps de travail réel à celui de la base :
+  arriver plus tôt ou partir plus tard ajoute au pool, arriver plus tard ou partir plus tôt
+  en retire. Une même journée peut faire les deux (arrivée 10h et départ 22h : +2h30).
+  « Absente » retire la journée entière (8h, 7h le vendredi). Le pool peut devenir négatif.
 - **Horaires de base** : 9h–18h30 du lundi au jeudi, 9h–17h30 le vendredi, avec une pause
   déjeuner de 12h30 à 14h. Le week-end, les horaires sont libres (aucun horaire de base,
   aucune pause).
-- **Pause déjeuner** : en semaine, « Mes horaires » propose un début et une fin de pause.
-  Seule la durée compte : décaler sa pause sans la raccourcir ne change rien, la raccourcir
-  ajoute au pool, l'allonger en retire. « Pas de pause » ajoute 1h30. Une journée
-  « Mes horaires » peut donc être négative.
+- **Pause déjeuner** : en semaine, un début et une fin de pause. Seule la durée compte :
+  décaler sa pause sans la raccourcir ne change rien, la raccourcir ajoute au pool,
+  l'allonger en retire. « Pas de pause » ajoute 1h30. En demi-journée (arrivée après le
+  déjeuner ou départ avant), la pause n'est pas réglable et ne compte pas comme du travail.
 - **Historique** : consultable en journal, par semaine (ISO) ou par mois, avec suppression
   possible d'une entrée erronée. Les vues par semaine et par mois affichent l'écart net de
-  chaque journée, heures prises comprises : leur total correspond à l'évolution du pool.
+  chaque journée : leur total correspond à l'évolution du pool.
 - **Correction** : toucher une journée du journal la recharge dans le formulaire, telle
   qu'elle a été saisie. Natacha ajuste les horaires et revalide — le bouton indique
-  "Corriger la journée" et la ligne concernée reste surlignée.
-- Une seule entrée par date et par type (ajout/prise) : ressaisir une date déjà utilisée
+  "Corriger la journée" et la ligne concernée reste surlignée. Les journées saisies avant la
+  v1.6 gardent leur valeur ; si les réenregistrer en change le résultat, l'app prévient avant.
+- Une seule entrée par date : ressaisir une date déjà utilisée
   met à jour l'entrée existante plutôt que d'en créer une nouvelle.
 - Aucune entrée n'est enregistrée si rien n'est modifié par rapport à l'horaire de base
   (pas de "0h" dans l'historique). Si une correction ramène une journée à ses horaires de

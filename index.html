@@ -173,37 +173,6 @@
     padding:.9rem 1.1rem 1rem;
     margin-bottom:1.2rem;
   }
-  .toggle{
-    display:flex;
-    background:var(--surface-alt);
-    border-radius:14px;
-    padding:4px;
-    gap:4px;
-    margin-bottom:.6rem;
-  }
-  .toggle button{
-    flex:1;
-    border:none;
-    background:transparent;
-    padding:.5rem .5rem;
-    border-radius:11px;
-    font-family:var(--font-sans);
-    font-weight:600;
-    font-size:.82rem;
-    color:var(--ink-muted);
-    cursor:pointer;
-    transition:background .25s ease, color .25s ease, box-shadow .25s ease;
-  }
-  .toggle button.active[data-mode="horaire"]{
-    background:var(--accent-add-soft);
-    color:var(--accent-add);
-    box-shadow:0 1px 3px rgba(0,0,0,.06);
-  }
-  .toggle button.active[data-mode="prise"]{
-    background:var(--accent-take-soft);
-    color:var(--accent-take);
-    box-shadow:0 1px 3px rgba(0,0,0,.06);
-  }
   .field-row{
     display:flex;
     gap:.6rem;
@@ -334,7 +303,6 @@
     transition:background .25s ease, transform .08s ease;
   }
   .submit-btn:active{ transform:scale(.98); }
-  .submit-btn[data-mode="prise"]{ background:var(--accent-take); }
   .history{
     margin-bottom:1.6rem;
   }
@@ -657,18 +625,13 @@
   </section>
 
   <section class="form-card">
-    <div class="toggle" role="group" aria-label="Type de mouvement">
-      <button type="button" class="active" data-mode="horaire" id="btnModeHoraire">Mes horaires</button>
-      <button type="button" data-mode="prise" id="btnModePrise">Je prends des heures</button>
-    </div>
-
     <div class="field-row">
       <div class="field">
         <label for="dateInput">Date</label>
         <input type="date" id="dateInput">
       </div>
       <div class="field">
-        <label for="arrivalSelect">Base</label>
+        <label>Base</label>
         <div class="base-display" id="scheduleInfo">9h – 18h30</div>
       </div>
     </div>
@@ -694,20 +657,6 @@
         </div>
       </div>
       <div class="delta-preview zero" id="deltaPreview">Aucun changement</div>
-    </div>
-
-    <div id="priseFields" style="display:none">
-      <div class="field-row">
-        <div class="field">
-          <label for="priseArrivalSelect">Arrivée</label>
-          <select id="priseArrivalSelect"></select>
-        </div>
-        <div class="field">
-          <label for="priseDepartureSelect">Départ</label>
-          <select id="priseDepartureSelect"></select>
-        </div>
-      </div>
-      <div class="delta-preview zero" id="priseDeltaPreview">Aucun changement</div>
     </div>
 
     <div class="field-row">
@@ -774,11 +723,10 @@
   "use strict";
 
   // Seul endroit a modifier pour changer le numero affiche en bas de page.
-  const APP_VERSION = "1.5";
+  const APP_VERSION = "1.6";
   const STORAGE_KEY = "natacha_pool_heures_v1";
   let entries = [];
   let storageOK = true;
-  let mode = "horaire";
 
   document.getElementById("appVersion").textContent = "Version " + APP_VERSION;
 
@@ -850,7 +798,7 @@
   // JSON (donc une Sheet qui dure plus longtemps) et lisible tel quel par Nico.
   // Les colonnes de pause (v1.5) sont en fin de ligne : l'import lit par nom de
   // colonne, donc les sauvegardes antérieures, qui ne les ont pas, restent lisibles.
-  const CSV_HEADER = ["id","date","type","heures","arrivalMin","departureMin","standardStart","standardEnd","weekend","note","createdAt","pauseStartMin","pauseEndMin","standardPauseStart","standardPauseEnd"];
+  const CSV_HEADER = ["id","date","type","heures","arrivalMin","departureMin","standardStart","standardEnd","weekend","note","createdAt","pauseStartMin","pauseEndMin","standardPauseStart","standardPauseEnd","absent"];
   const numOrEmpty = v => (typeof v === "number" && !isNaN(v)) ? v : "";
 
   function csvEscapeField(v){
@@ -876,7 +824,8 @@
         numOrEmpty(e.pauseStartMin),
         numOrEmpty(e.pauseEndMin),
         numOrEmpty(e.standardPauseStart),
-        numOrEmpty(e.standardPauseEnd)
+        numOrEmpty(e.standardPauseEnd),
+        e.absent ? "true" : ""
       ];
       lines.push(row.map(csvEscapeField).join(";"));
     });
@@ -979,6 +928,13 @@
           const v = get(row, k);
           if(v !== ""){ const n = parseInt(v, 10); if(!isNaN(n)) entry[k] = n; }
         });
+        // Journée d'absence (v1.6) : pas d'heure d'arrivée ni de départ.
+        const absentRaw = get(row,"absent").toLowerCase();
+        if(absentRaw === "true" || absentRaw === "vrai" || absentRaw === "1"){
+          entry.absent = true;
+          entry.arrivalMin = null;
+          entry.departureMin = null;
+        }
       }
       out.push(entry);
     }
@@ -1060,11 +1016,44 @@
     if(day === 5) return { start: 9*60, end: 17*60+30, weekend: false, ...pause }; // vendredi 9h–17h30
     return { start: 9*60, end: 18*60+30, weekend: false, ...pause }; // lun–jeu 9h–18h30
   }
-  // Écart d'une journée « Mes horaires » en semaine. Seule la durée de la
-  // pause compte : la décaler sans la raccourcir ni l'allonger ne change rien.
-  function weekdayHoraireDelta(sched, arrival, departure, pauseStart, pauseEnd){
-    const basePause = sched.pauseEnd - sched.pauseStart;
-    return (sched.start - arrival)/60 + (departure - sched.end)/60 + (basePause - (pauseEnd - pauseStart))/60;
+  // ---------- calcul d'une journée de semaine (v1.6) ----------
+  // Écart = temps travaillé réel − temps travaillé de base (8h, 7h le
+  // vendredi). Une arrivée plus tôt, un départ plus tard ou une pause plus
+  // courte ajoutent au pool ; l'inverse en retire. Seule la durée de la pause
+  // compte, pas sa position.
+  function baseWorkedMin(sched){
+    return (sched.end - sched.start) - (sched.pauseEnd - sched.pauseStart);
+  }
+  // La pause n'est réglable que si Natacha est présente pendant toute la
+  // pause de base. Sinon (demi-journée), elle n'est pas réglable : seule la
+  // partie de la pause de base qui tombe pendant sa présence est déduite.
+  function pauseApplicable(sched, arr, dep){
+    return arr <= sched.pauseStart && dep >= sched.pauseEnd;
+  }
+  function overlapMin(a1, a2, b1, b2){
+    return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+  }
+  // d = { absent } ou { arr, dep, ps, pe } (ps/pe ignorés si pause non réglable).
+  function workedMin(sched, d){
+    if(d.absent) return 0;
+    const pause = pauseApplicable(sched, d.arr, d.dep)
+      ? (d.pe - d.ps)
+      : overlapMin(d.arr, d.dep, sched.pauseStart, sched.pauseEnd);
+    return (d.dep - d.arr) - pause;
+  }
+  function weekdayDelta(sched, d){
+    return (workedMin(sched, d) - baseWorkedMin(sched)) / 60;
+  }
+  // Valeur qu'aurait une entrée enregistrée si on la recalculait avec la
+  // règle actuelle. Sert uniquement à prévenir Natacha avant de réenregistrer
+  // une journée saisie avec une ancienne règle : on ne recalcule jamais
+  // `heures` d'office.
+  function currentRuleValue(e){
+    const sched = getStandardSchedule(e.date);
+    if(sched.weekend || e.weekend) return e.heures;
+    if(e.absent) return weekdayDelta(sched, { absent:true });
+    const p = entryPause(e);
+    return weekdayDelta(sched, { arr:e.arrivalMin, dep:e.departureMin, ps:p.start, pe:p.end });
   }
   // Les entrées enregistrées avant la v1.5 n'ont pas de champs de pause : leur
   // pause est celle de la base. On ne recalcule jamais leurs `heures`.
@@ -1108,6 +1097,7 @@
         if(e.note) desc += " — " + e.note;
         return desc;
       }
+      if(e.absent) return "Absente" + (e.note ? " — " + e.note : "");
       const parts = [];
       if(e.arrivalMin !== e.standardStart) parts.push(`Arrivée ${formatTimeLabel(e.arrivalMin)}`);
       if(e.type === "horaire"){
@@ -1364,23 +1354,21 @@
   }
 
   // ---------- formulaire ----------
+  // Depuis la v1.6, un seul formulaire : arriver plus tôt ou partir plus tard
+  // ajoute au pool, arriver plus tard ou partir plus tôt en retire. L'ancien
+  // onglet « Je prends des heures » n'existe plus ; ses saisies (type
+  // "prise") restent lisibles et comptées telles quelles.
   const dateInput = document.getElementById("dateInput");
   const noteInput = document.getElementById("noteInput");
   const submitBtn = document.getElementById("submitBtn");
-  const btnModeHoraire = document.getElementById("btnModeHoraire");
-  const btnModePrise = document.getElementById("btnModePrise");
-  const horaireFields = document.getElementById("horaireFields");
-  const priseFields = document.getElementById("priseFields");
   const arrivalSelect = document.getElementById("arrivalSelect");
   const departureSelect = document.getElementById("departureSelect");
   const pauseStartSelect = document.getElementById("pauseStartSelect");
   const pauseEndSelect = document.getElementById("pauseEndSelect");
   const timeGrid = document.getElementById("timeGrid");
-  const priseArrivalSelect = document.getElementById("priseArrivalSelect");
-  const priseDepartureSelect = document.getElementById("priseDepartureSelect");
   const scheduleInfo = document.getElementById("scheduleInfo");
   const deltaPreview = document.getElementById("deltaPreview");
-  const priseDeltaPreview = document.getElementById("priseDeltaPreview");
+  const ABSENT = "absent";
   let currentSchedule = null;
 
   function todayISO(){
@@ -1391,6 +1379,14 @@
   }
   dateInput.value = todayISO();
 
+  // Une journée = une entrée. Pour une date qui en aurait deux (ancien
+  // « horaire » + ancienne « prise »), on affiche l'horaire en priorité.
+  function entriesOn(dateISO){ return entries.filter(e => e.date === dateISO); }
+  function entryToShow(dateISO){
+    const list = entriesOn(dateISO);
+    return list.find(e => e.type === "horaire") || list[0] || null;
+  }
+
   function populateForm(dateISO){
     const sched = getStandardSchedule(dateISO);
     currentSchedule = sched;
@@ -1398,28 +1394,20 @@
       ? "Week-end"
       : `${formatTimeLabel(sched.start)}–${formatTimeLabel(sched.pauseStart)} · ${formatTimeLabel(sched.pauseEnd)}–${formatTimeLabel(sched.end)}`;
 
-    if(mode === "horaire") populateHoraireSelects(dateISO, sched);
-    else populatePriseSelects(dateISO, sched);
-
-    const existing = entries.find(e => e.date === dateISO && e.type === mode);
+    const existing = entryToShow(dateISO);
+    populateTimeSelects(sched, existing);
     noteInput.value = (existing && existing.note) ? existing.note : "";
-    updateSubmitLabel(!!existing);
+    submitBtn.textContent = existing ? "Corriger la journée" : "Enregistrer la journée";
     updateDeltaPreview();
   }
 
-  // Le libelle dit s'il s'agit d'une creation ou d'une correction d'une journee deja enregistree.
-  function updateSubmitLabel(isExisting){
-    if(mode === "horaire") submitBtn.textContent = isExisting ? "Corriger la journée" : "Enregistrer la journée";
-    else submitBtn.textContent = isExisting ? "Corriger la prise" : "Prendre dans le pool";
-  }
-
-  // Recharge une entree de l'historique dans le formulaire pour correction.
+  // Recharge une entrée de l'historique dans le formulaire pour correction.
   function startEdit(id){
     const entry = entries.find(x => x.id === id);
     if(!entry) return;
     editingId = id;
     dateInput.value = entry.date;
-    setMode(entry.type);
+    populateForm(entry.date);
     renderHistoryList();
     window.scrollTo({ top:0, behavior:"smooth" });
   }
@@ -1430,149 +1418,134 @@
     o.textContent = label;
     select.appendChild(o);
   }
-  function setSelectValue(select, value){
+  // Valeur hors liste : on retombe sur `fallback` (jamais sur la 1re option,
+  // qui peut être « Absente »).
+  function setSelectValue(select, value, fallback){
     select.value = String(value);
-    if(select.value === "") select.selectedIndex = 0; // valeur hors liste : on retombe sur la base
+    if(select.value === "" && fallback !== undefined) select.value = String(fallback);
+    if(select.value === "") select.selectedIndex = 0;
   }
-  // Pauses au pas de 30 min, de 30 min après le début de base jusqu'à 30 min
-  // avant la fin de base (18h, 17h le vendredi). Arrivée ≤ base et départ ≥
-  // base dans cet onglet : la pause tombe donc toujours dans la journée.
-  function pauseMax(sched){ return sched.end - 30; }
+  function timeLabel(t, base){
+    return t === base ? `Base (${formatTimeLabel(t)})` : formatTimeLabel(t);
+  }
+  function disableSelect(select){
+    select.innerHTML = "";
+    addOption(select, "", "—");
+    select.disabled = true;
+  }
+
+  // Lit le formulaire d'une journée de semaine.
+  function readWeekday(){
+    if(arrivalSelect.value === ABSENT) return { absent:true };
+    return {
+      arr: parseInt(arrivalSelect.value, 10),
+      dep: parseInt(departureSelect.value, 10),
+      ps: parseInt(pauseStartSelect.value, 10),
+      pe: parseInt(pauseEndSelect.value, 10)
+    };
+  }
+
+  function populateTimeSelects(sched, existing){
+    timeGrid.classList.toggle("no-pause", !!sched.weekend);
+    arrivalSelect.disabled = false;
+    arrivalSelect.innerHTML = "";
+
+    if(sched.weekend){
+      addOption(arrivalSelect, "", "Week-end");
+      buildRangeOptions(60, DAY_MIN).forEach(t => addOption(arrivalSelect, t, formatTimeLabel(t)));
+      arrivalSelect.value = (existing && existing.weekend) ? String(existing.arrivalMin) : "";
+      departureSelect.disabled = false;
+      populateWeekendDeparture(existing && existing.weekend ? existing : null);
+      return;
+    }
+
+    // Semaine : « Absente », puis 1h → 23h30 dans l'ordre chronologique.
+    addOption(arrivalSelect, ABSENT, "Absente");
+    buildRangeOptions(60, DAY_MIN - 30).forEach(t => addOption(arrivalSelect, t, timeLabel(t, sched.start)));
+    let arr = sched.start, dep = sched.end, pause = { start: sched.pauseStart, end: sched.pauseEnd };
+    if(existing && !existing.weekend){
+      if(existing.absent) arr = ABSENT;
+      else {
+        arr = existing.arrivalMin;
+        dep = existing.departureMin;
+        pause = entryPause(existing); // sans champs de pause = pause de base
+      }
+    }
+    setSelectValue(arrivalSelect, arr, sched.start);
+    refreshAfterArrival(sched, dep, pause);
+  }
+
+  // Le départ commence 30 min après l'arrivée et va jusqu'à minuit.
+  function refreshAfterArrival(sched, wantedDep, wantedPause){
+    if(arrivalSelect.value === ABSENT){
+      disableSelect(departureSelect);
+      disableSelect(pauseStartSelect);
+      disableSelect(pauseEndSelect);
+      return;
+    }
+    const arr = parseInt(arrivalSelect.value, 10);
+    departureSelect.disabled = false;
+    departureSelect.innerHTML = "";
+    buildRangeOptions(arr + 30, DAY_MIN).forEach(t => addOption(departureSelect, t, timeLabel(t, sched.end)));
+    const fallbackDep = sched.end > arr ? sched.end : arr + 30;
+    setSelectValue(departureSelect, wantedDep, fallbackDep);
+    refreshPause(sched, wantedPause);
+  }
+
+  // Bornes de la pause : pendant la présence, et au plus tard 30 min avant la
+  // fin de base (18h, 17h le vendredi).
+  function pauseBounds(sched){
+    const arr = parseInt(arrivalSelect.value, 10);
+    const dep = parseInt(departureSelect.value, 10);
+    return { lo: Math.max(arr, sched.start + 30), hi: Math.min(dep, sched.end - 30) };
+  }
+  function refreshPause(sched, wanted){
+    const arr = parseInt(arrivalSelect.value, 10);
+    const dep = parseInt(departureSelect.value, 10);
+    if(!pauseApplicable(sched, arr, dep)){
+      disableSelect(pauseStartSelect);
+      disableSelect(pauseEndSelect);
+      return;
+    }
+    const w = wanted || { start: sched.pauseStart, end: sched.pauseEnd };
+    populatePauseStart(sched, w.start);
+    populatePauseEnd(sched, parseInt(pauseStartSelect.value, 10), w.end);
+  }
   function populatePauseStart(sched, value){
+    const { lo, hi } = pauseBounds(sched);
+    pauseStartSelect.disabled = false;
     pauseStartSelect.innerHTML = "";
     addOption(pauseStartSelect, sched.pauseStart, `Base (${formatTimeLabel(sched.pauseStart)})`);
-    buildRangeOptions(sched.start + 30, pauseMax(sched)).forEach(t => {
+    buildRangeOptions(lo, hi).forEach(t => {
       if(t !== sched.pauseStart) addOption(pauseStartSelect, t, formatTimeLabel(t));
     });
-    setSelectValue(pauseStartSelect, value);
+    setSelectValue(pauseStartSelect, value, sched.pauseStart);
     pauseStartSelect.dataset.prev = pauseStartSelect.value;
   }
   // La liste de fin démarre au début choisi : une fin avant le début est
   // impossible. « Pas de pause » = fin égale au début.
   function populatePauseEnd(sched, startMin, value){
+    const { hi } = pauseBounds(sched);
+    pauseEndSelect.disabled = false;
     pauseEndSelect.innerHTML = "";
-    if(sched.pauseEnd > startMin) addOption(pauseEndSelect, sched.pauseEnd, `Base (${formatTimeLabel(sched.pauseEnd)})`);
+    const baseOk = sched.pauseEnd > startMin && sched.pauseEnd <= hi;
+    if(baseOk) addOption(pauseEndSelect, sched.pauseEnd, `Base (${formatTimeLabel(sched.pauseEnd)})`);
     addOption(pauseEndSelect, startMin, "Pas de pause");
-    buildRangeOptions(startMin + 30, pauseMax(sched)).forEach(t => {
+    buildRangeOptions(startMin + 30, hi).forEach(t => {
       if(t !== sched.pauseEnd) addOption(pauseEndSelect, t, formatTimeLabel(t));
     });
-    setSelectValue(pauseEndSelect, value);
-  }
-
-  function populateHoraireSelects(dateISO, sched){
-    const existing = entries.find(e => e.date === dateISO && e.type === "horaire");
-    arrivalSelect.disabled = false;
-    departureSelect.disabled = false;
-    timeGrid.classList.toggle("no-pause", !!sched.weekend);
-
-    if(sched.weekend){
-      arrivalSelect.innerHTML = "";
-      const optWA = document.createElement("option");
-      optWA.value = "";
-      optWA.textContent = "Week-end";
-      arrivalSelect.appendChild(optWA);
-      buildRangeOptions(60, DAY_MIN).forEach(t => {
-        const o = document.createElement("option");
-        o.value = t;
-        o.textContent = formatTimeLabel(t);
-        arrivalSelect.appendChild(o);
-      });
-      arrivalSelect.value = existing ? String(existing.arrivalMin) : "";
-
-      populateWeekendDeparture(existing);
-    } else {
-      arrivalSelect.innerHTML = "";
-      const optA = document.createElement("option");
-      optA.value = sched.start;
-      optA.textContent = `Base (${formatTimeLabel(sched.start)})`;
-      arrivalSelect.appendChild(optA);
-      buildMorningOptions(sched.start).forEach(t => {
-        const o = document.createElement("option");
-        o.value = t;
-        o.textContent = formatTimeLabel(t);
-        arrivalSelect.appendChild(o);
-      });
-      arrivalSelect.value = String(existing ? existing.arrivalMin : sched.start);
-
-      departureSelect.innerHTML = "";
-      const optD = document.createElement("option");
-      optD.value = sched.end;
-      optD.textContent = `Base (${formatTimeLabel(sched.end)})`;
-      departureSelect.appendChild(optD);
-      buildEveningOptions(sched.end).forEach(t => {
-        const o = document.createElement("option");
-        o.value = t;
-        o.textContent = formatTimeLabel(t);
-        departureSelect.appendChild(o);
-      });
-      departureSelect.value = String(existing ? existing.departureMin : sched.end);
-
-      // Entrée d'avant la v1.5 : pas de champs de pause, donc pause de base.
-      const p = existing ? entryPause(existing) : { start: sched.pauseStart, end: sched.pauseEnd };
-      populatePauseStart(sched, p.start);
-      populatePauseEnd(sched, parseInt(pauseStartSelect.value, 10), p.end);
-    }
+    setSelectValue(pauseEndSelect, value, baseOk ? sched.pauseEnd : startMin);
   }
 
   function populateWeekendDeparture(existing){
     departureSelect.innerHTML = "";
-    const optWD = document.createElement("option");
-    optWD.value = "";
-    optWD.textContent = "Week-end";
-    departureSelect.appendChild(optWD);
+    addOption(departureSelect, "", "Week-end");
     const arrivalRaw = arrivalSelect.value;
     if(arrivalRaw !== ""){
       const arrivalMin = parseInt(arrivalRaw, 10);
-      buildRangeOptions(arrivalMin + 60, DAY_MIN).forEach(t => {
-        const o = document.createElement("option");
-        o.value = t;
-        o.textContent = formatTimeLabel(t);
-        departureSelect.appendChild(o);
-      });
+      buildRangeOptions(arrivalMin + 60, DAY_MIN).forEach(t => addOption(departureSelect, t, formatTimeLabel(t)));
     }
     departureSelect.value = existing ? String(existing.departureMin) : "";
-  }
-
-  function populatePriseSelects(dateISO, sched){
-    const existing = entries.find(e => e.date === dateISO && e.type === "prise");
-
-    if(sched.weekend){
-      priseArrivalSelect.innerHTML = `<option value="">Week-end</option>`;
-      priseArrivalSelect.value = "";
-      priseArrivalSelect.disabled = true;
-      priseDepartureSelect.innerHTML = `<option value="">Week-end</option>`;
-      priseDepartureSelect.value = "";
-      priseDepartureSelect.disabled = true;
-      return;
-    }
-    priseArrivalSelect.disabled = false;
-    priseDepartureSelect.disabled = false;
-
-    priseArrivalSelect.innerHTML = "";
-    const optA = document.createElement("option");
-    optA.value = sched.start;
-    optA.textContent = `Base (${formatTimeLabel(sched.start)})`;
-    priseArrivalSelect.appendChild(optA);
-    buildRangeOptions(sched.start + 30, sched.end).forEach(t => {
-      const o = document.createElement("option");
-      o.value = t;
-      o.textContent = formatTimeLabel(t);
-      priseArrivalSelect.appendChild(o);
-    });
-    priseArrivalSelect.value = String(existing ? existing.arrivalMin : sched.start);
-
-    priseDepartureSelect.innerHTML = "";
-    const optD = document.createElement("option");
-    optD.value = sched.end;
-    optD.textContent = `Base (${formatTimeLabel(sched.end)})`;
-    priseDepartureSelect.appendChild(optD);
-    buildDescRangeOptions(sched.end - 30, sched.start).forEach(t => {
-      const o = document.createElement("option");
-      o.value = t;
-      o.textContent = formatTimeLabel(t);
-      priseDepartureSelect.appendChild(o);
-    });
-    priseDepartureSelect.value = String(existing ? existing.departureMin : sched.end);
   }
 
   // Colore un champ selon son effet sur le pool : vert s'il ajoute du temps
@@ -1583,61 +1556,73 @@
   }
 
   function updateDeltaPreview(){
-    let delta = 0;
-    if(mode === "horaire"){
-      let detail = "";
-      if(currentSchedule.weekend){
-        const a = arrivalSelect.value, d = departureSelect.value;
-        if(a !== "" && d !== "") delta = (parseInt(d,10) - parseInt(a,10)) / 60;
-        [arrivalSelect, departureSelect, pauseStartSelect, pauseEndSelect].forEach(s => markEffect(s, 0));
+    let delta = 0, detail = "";
+    const sched = currentSchedule;
+    if(sched.weekend){
+      const a = arrivalSelect.value, d = departureSelect.value;
+      if(a !== "" && d !== "") delta = (parseInt(d,10) - parseInt(a,10)) / 60;
+      [arrivalSelect, departureSelect, pauseStartSelect, pauseEndSelect].forEach(s => markEffect(s, 0));
+    } else {
+      const d = readWeekday();
+      delta = weekdayDelta(sched, d);
+      if(d.absent){
+        markEffect(arrivalSelect, -1);
+        [departureSelect, pauseStartSelect, pauseEndSelect].forEach(s => markEffect(s, 0));
+        detail = "journée non travaillée";
       } else {
-        const sched = currentSchedule;
-        const arrival = parseInt(arrivalSelect.value, 10);
-        const departure = parseInt(departureSelect.value, 10);
-        const ps = parseInt(pauseStartSelect.value, 10);
-        const pe = parseInt(pauseEndSelect.value, 10);
-        delta = weekdayHoraireDelta(sched, arrival, departure, ps, pe);
-        markEffect(arrivalSelect, sched.start - arrival);
-        markEffect(departureSelect, departure - sched.end);
-        markEffect(pauseStartSelect, ps - sched.pauseStart);
-        markEffect(pauseEndSelect, sched.pauseEnd - pe);
+        markEffect(arrivalSelect, sched.start - d.arr);
+        markEffect(departureSelect, d.dep - sched.end);
+        if(pauseApplicable(sched, d.arr, d.dep)){
+          markEffect(pauseStartSelect, d.ps - sched.pauseStart);
+          markEffect(pauseEndSelect, sched.pauseEnd - d.pe);
+        } else {
+          markEffect(pauseStartSelect, 0);
+          markEffect(pauseEndSelect, 0);
+        }
+        // Seule la pause bouge : on garde la formulation validée en v1.5.
         const baseDur = sched.pauseEnd - sched.pauseStart;
-        const dur = pe - ps;
-        if(dur !== baseDur){
+        const pauseOnly = d.arr === sched.start && d.dep === sched.end && (d.pe - d.ps) !== baseDur;
+        if(pauseOnly){
+          const dur = d.pe - d.ps;
           detail = dur === 0
             ? `pas de pause au lieu de ${formatHeures(baseDur/60)}`
             : `pause de ${formatHeures(dur/60)} au lieu de ${formatHeures(baseDur/60)}`;
+        } else {
+          detail = `travaillé ${formatHeures(workedMin(sched, d)/60)} au lieu de ${formatHeures(baseWorkedMin(sched)/60)}`;
         }
       }
-      const zero = Math.abs(delta) <= 1e-9;
-      deltaPreview.textContent = zero ? "Aucun changement" : signedHeures(delta);
-      if(!zero && detail){
-        const span = document.createElement("span");
-        span.className = "delta-detail";
-        span.textContent = detail;
-        deltaPreview.appendChild(span);
-      }
-      deltaPreview.classList.toggle("zero", zero);
-      deltaPreview.classList.toggle("taking", !zero && delta < 0);
-    } else {
-      if(!currentSchedule.weekend){
-        const arrival = parseInt(priseArrivalSelect.value, 10);
-        const departure = parseInt(priseDepartureSelect.value, 10);
-        delta = Math.max(0, arrival - currentSchedule.start)/60 + Math.max(0, currentSchedule.end - departure)/60;
-        markEffect(priseArrivalSelect, currentSchedule.start - arrival);
-        markEffect(priseDepartureSelect, departure - currentSchedule.end);
-      }
-      const zero = delta <= 1e-9;
-      priseDeltaPreview.textContent = zero ? "Aucun changement" : "−" + formatHeures(delta);
-      priseDeltaPreview.classList.toggle("zero", zero);
-      priseDeltaPreview.classList.toggle("taking", !zero);
     }
+    const zero = Math.abs(delta) <= 1e-9;
+    deltaPreview.textContent = zero ? "Aucun changement" : signedHeures(delta);
+    if(!zero && detail){
+      const span = document.createElement("span");
+      span.className = "delta-detail";
+      span.textContent = detail;
+      deltaPreview.appendChild(span);
+    }
+    deltaPreview.classList.toggle("zero", zero);
+    deltaPreview.classList.toggle("taking", !zero && delta < 0);
   }
+
   arrivalSelect.addEventListener("change", () => {
-    if(currentSchedule.weekend) populateWeekendDeparture(null);
+    const sched = currentSchedule;
+    if(sched.weekend) populateWeekendDeparture(null);
+    else {
+      // On garde le départ et la pause choisis s'ils restent possibles.
+      const dep = parseInt(departureSelect.value, 10);
+      const ps = parseInt(pauseStartSelect.value, 10), pe = parseInt(pauseEndSelect.value, 10);
+      refreshAfterArrival(sched, isNaN(dep) ? sched.end : dep, isNaN(ps) ? null : { start: ps, end: pe });
+    }
     updateDeltaPreview();
   });
-  departureSelect.addEventListener("change", updateDeltaPreview);
+  departureSelect.addEventListener("change", () => {
+    const sched = currentSchedule;
+    if(!sched.weekend){
+      const ps = parseInt(pauseStartSelect.value, 10), pe = parseInt(pauseEndSelect.value, 10);
+      refreshPause(sched, isNaN(ps) ? null : { start: ps, end: pe });
+    }
+    updateDeltaPreview();
+  });
   // Changer le début de pause déplace la pause en gardant sa durée : décaler
   // sa pause se fait en un geste, sans effet sur le pool. On ajuste ensuite
   // la fin pour la raccourcir ou l'allonger.
@@ -1647,45 +1632,31 @@
     const oldEnd = parseInt(pauseEndSelect.value, 10);
     const dur = (isNaN(prev) || isNaN(oldEnd)) ? (sched.pauseEnd - sched.pauseStart) : oldEnd - prev;
     const start = parseInt(pauseStartSelect.value, 10);
-    populatePauseEnd(sched, start, Math.min(start + dur, pauseMax(sched)));
+    populatePauseEnd(sched, start, Math.min(start + dur, pauseBounds(sched).hi));
     pauseStartSelect.dataset.prev = pauseStartSelect.value;
     updateDeltaPreview();
   });
   pauseEndSelect.addEventListener("change", updateDeltaPreview);
-  priseArrivalSelect.addEventListener("change", updateDeltaPreview);
-  priseDepartureSelect.addEventListener("change", updateDeltaPreview);
   dateInput.addEventListener("change", () => {
     editingId = null;
     populateForm(dateInput.value || todayISO());
     renderHistoryList();
   });
 
-  function setMode(m){
-    mode = m;
-    btnModeHoraire.classList.toggle("active", m === "horaire");
-    btnModePrise.classList.toggle("active", m === "prise");
-    horaireFields.style.display = m === "horaire" ? "" : "none";
-    priseFields.style.display = m === "prise" ? "" : "none";
-    submitBtn.setAttribute("data-mode", m);
-    submitBtn.textContent = m === "horaire" ? "Enregistrer la journée" : "Prendre dans le pool";
-    populateForm(dateInput.value || todayISO());
-  }
-  btnModeHoraire.addEventListener("click", () => { editingId = null; setMode("horaire"); renderHistoryList(); });
-  btnModePrise.addEventListener("click", () => { editingId = null; setMode("prise"); renderHistoryList(); });
-
-  // Delta nul : soit il n'y a rien a enregistrer, soit Natacha vient de remettre
-  // les horaires de base sur une journee deja enregistree -> on propose de la retirer.
-  function handleReturnToBase(date, type){
-    const entry = entries.find(e => e.date === date && e.type === type);
-    if(!entry){
+  // Écart nul : soit il n'y a rien à enregistrer, soit Natacha vient de
+  // remettre les horaires de base sur une journée déjà enregistrée -> on
+  // propose de la retirer.
+  function handleReturnToBase(date){
+    const list = entriesOn(date);
+    if(list.length === 0){
       showToast("Aucun changement pour cette journée — rien à enregistrer.");
       return;
     }
-    const amount = (entry.heures < 0 ? "−" : "+") + formatHeures(Math.abs(entry.heures)).replace("−","");
+    const total = list.reduce((s, e) => s + e.heures, 0);
     askConfirm(
-      `Les horaires du ${formatDateRow(entry.date)} sont revenus à la normale. Supprimer ce mouvement (${amount}) ?`,
+      `Les horaires du ${formatDateRow(date)} sont revenus à la normale. Supprimer ce mouvement (${signedHeures(total)}) ?`,
       () => {
-        entries = entries.filter(x => x.id !== entry.id);
+        entries = entries.filter(x => x.date !== date);
         editingId = null;
         saveEntries();
         render();
@@ -1697,97 +1668,81 @@
 
   submitBtn.addEventListener("click", () => {
     const date = dateInput.value || todayISO();
+    const sched = currentSchedule;
+    let delta, fields;
 
-    if(mode === "horaire"){
-      let arrival, departure, delta, pauseFields = {};
-      if(currentSchedule.weekend){
-        if(arrivalSelect.value === "" && departureSelect.value === ""){
-          handleReturnToBase(date, "horaire");
-          return;
-        }
-        if(arrivalSelect.value === "" || departureSelect.value === ""){
-          showToast("Choisis une heure d'arrivée et de départ pour ce jour de week-end.");
-          return;
-        }
-        arrival = parseInt(arrivalSelect.value, 10);
-        departure = parseInt(departureSelect.value, 10);
-        delta = (departure - arrival) / 60;
-      } else {
-        arrival = parseInt(arrivalSelect.value, 10);
-        departure = parseInt(departureSelect.value, 10);
-        const ps = parseInt(pauseStartSelect.value, 10);
-        const pe = parseInt(pauseEndSelect.value, 10);
-        delta = weekdayHoraireDelta(currentSchedule, arrival, departure, ps, pe);
-        pauseFields = {
-          pauseStartMin: ps,
-          pauseEndMin: pe,
-          standardPauseStart: currentSchedule.pauseStart,
-          standardPauseEnd: currentSchedule.pauseEnd
-        };
-      }
-      // Une journée « Mes horaires » peut désormais être négative (pause
-      // élargie) : seul un écart nul ramène à la base.
-      if(Math.abs(delta) <= 1e-9){
-        handleReturnToBase(date, "horaire");
+    if(sched.weekend){
+      if(arrivalSelect.value === "" && departureSelect.value === ""){
+        handleReturnToBase(date);
         return;
       }
-      const existingIdx = entries.findIndex(e => e.date === date && e.type === "horaire");
-      const entryData = {
-        id: existingIdx >= 0 ? entries[existingIdx].id : uid(),
-        date,
-        type: "horaire",
-        heures: delta,
-        arrivalMin: arrival,
-        departureMin: departure,
-        standardStart: currentSchedule.weekend ? null : currentSchedule.start,
-        standardEnd: currentSchedule.weekend ? null : currentSchedule.end,
-        weekend: !!currentSchedule.weekend,
-        note: noteInput.value.trim().slice(0,80),
-        createdAt: existingIdx >= 0 ? entries[existingIdx].createdAt : Date.now(),
-        ...pauseFields
-      };
-      const wasExisting = existingIdx >= 0;
-      if(wasExisting) entries[existingIdx] = entryData;
-      else entries.push(entryData);
-      editingId = null;
-      saveEntries();
-      render();
-      populateForm(date);
-      showToast(wasExisting ? "Journée mise à jour ✓" : (delta > 0 ? "Heures ajoutées ✓" : "Heures prises ✓"));
+      if(arrivalSelect.value === "" || departureSelect.value === ""){
+        showToast("Choisis une heure d'arrivée et de départ pour ce jour de week-end.");
+        return;
+      }
+      const arrival = parseInt(arrivalSelect.value, 10);
+      const departure = parseInt(departureSelect.value, 10);
+      delta = (departure - arrival) / 60;
+      fields = { arrivalMin: arrival, departureMin: departure, standardStart: null, standardEnd: null, weekend: true };
     } else {
-      if(currentSchedule.weekend){
-        showToast("Natacha ne travaille pas le week-end : rien à prendre.");
-        return;
+      const d = readWeekday();
+      delta = weekdayDelta(sched, d);
+      fields = { standardStart: sched.start, standardEnd: sched.end, weekend: false };
+      if(d.absent){
+        Object.assign(fields, { arrivalMin: null, departureMin: null, absent: true });
+      } else {
+        Object.assign(fields, { arrivalMin: d.arr, departureMin: d.dep });
+        if(pauseApplicable(sched, d.arr, d.dep)){
+          Object.assign(fields, {
+            pauseStartMin: d.ps,
+            pauseEndMin: d.pe,
+            standardPauseStart: sched.pauseStart,
+            standardPauseEnd: sched.pauseEnd
+          });
+        }
       }
-      const arrival = parseInt(priseArrivalSelect.value, 10);
-      const departure = parseInt(priseDepartureSelect.value, 10);
-      const delta = Math.max(0, arrival - currentSchedule.start)/60 + Math.max(0, currentSchedule.end - departure)/60;
-      if(delta <= 1e-9){
-        handleReturnToBase(date, "prise");
-        return;
-      }
-      const existingIdx = entries.findIndex(e => e.date === date && e.type === "prise");
-      const entryData = {
-        id: existingIdx >= 0 ? entries[existingIdx].id : uid(),
-        date,
-        type: "prise",
-        heures: -delta,
-        arrivalMin: arrival,
-        departureMin: departure,
-        standardStart: currentSchedule.start,
-        standardEnd: currentSchedule.end,
-        weekend: false,
-        note: noteInput.value.trim().slice(0,80),
-        createdAt: existingIdx >= 0 ? entries[existingIdx].createdAt : Date.now()
-      };
-      const wasExisting = existingIdx >= 0;
-      if(wasExisting) entries[existingIdx] = entryData;
-      else entries.push(entryData);
+    }
+
+    if(Math.abs(delta) <= 1e-9){
+      handleReturnToBase(date);
+      return;
+    }
+
+    const previous = entriesOn(date);
+    const keep = previous.find(e => e.type === "horaire") || previous[0];
+    const entryData = {
+      id: keep ? keep.id : uid(),
+      date,
+      type: "horaire",
+      heures: delta,
+      note: noteInput.value.trim().slice(0,80),
+      createdAt: keep ? keep.createdAt : Date.now(),
+      ...fields
+    };
+    const doSave = () => {
+      // Une journée = une entrée : remplace aussi une éventuelle ancienne « prise ».
+      entries = entries.filter(e => e.date !== date);
+      entries.push(entryData);
       editingId = null;
       saveEntries();
       render();
       populateForm(date);
-      showToast(wasExisting ? "Journée mise à jour ✓" : "Heures prises enregistrées ✓");
+      showToast(previous.length ? "Journée mise à jour ✓" : (delta > 0 ? "Heures ajoutées ✓" : "Heures prises ✓"));
+    };
+
+    // Journée saisie avec une ancienne règle dont la valeur changerait, ou
+    // date qui portait deux entrées (ancien « horaire » + ancienne « prise »,
+    // que l'enregistrement fusionne) : on prévient avant de réenregistrer
+    // (choix B validé par Nico). Jamais de changement silencieux d'anciennes heures.
+    const oldRule = previous.length > 1 || previous.some(e => Math.abs(currentRuleValue(e) - e.heures) > 1e-9);
+    if(oldRule){
+      const oldTotal = previous.reduce((s, e) => s + e.heures, 0);
+      askConfirm(
+        `Cette journée avait été comptée ${signedHeures(oldTotal)} selon l'ancienne règle. Elle sera enregistrée à ${signedHeures(delta)}. Continuer ?`,
+        doSave
+      );
+    } else {
+      doSave();
     }
   });
 
@@ -1862,7 +1817,8 @@
         standardEnd: x.standardEnd,
         weekend: !!x.weekend
       } : {}),
-      ...(x.type === "horaire" ? pauseFieldsOf(x) : {})
+      ...(x.type === "horaire" ? pauseFieldsOf(x) : {}),
+      ...(x.absent ? { absent: true, arrivalMin: null, departureMin: null } : {})
     }));
     if(clean.length === 0){
       showToast("Sauvegarde vide ou illisible.");
@@ -1908,7 +1864,7 @@
   entries = loadEntries();
   document.getElementById("storageBanner").classList.toggle("show", !storageOK);
   render();
-  setMode("horaire");
+  populateForm(dateInput.value || todayISO());
   updateBackupStatus();
   if(localStorage.getItem(BACKUP_PENDING_KEY)) sendBackup();
 })();
