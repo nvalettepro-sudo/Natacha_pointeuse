@@ -93,8 +93,9 @@ qui garantit qu'une mise à jour atteint le téléphone de Natacha.
 Hébergé sur GitHub Pages, branche `main`, dossier racine, `Enforce HTTPS` actif.
 URL : https://nvalettepro-sudo.github.io/Natacha_pointeuse/
 
-**État au 21/09/2026** : version 1.2 en ligne, app installée et validée sur le
-téléphone de Natacha (Samsung S25 FE).
+**État au 16/11/2026** : version 1.5 en ligne (pause déjeuner), déploiement
+vérifié via l'API. App installée sur le téléphone de Natacha (Samsung S25 FE)
+depuis la v1.2.
 
 ### Le build Pages ne part pas toujours
 
