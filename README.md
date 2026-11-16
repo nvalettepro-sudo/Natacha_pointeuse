@@ -2,6 +2,17 @@
 
 **→ https://nvalettepro-sudo.github.io/Natacha_pointeuse/**
 
+**→ Pour tester : https://nvalettepro-sudo.github.io/Natacha_pointeuse/?nobackup**
+
+À utiliser chaque fois qu'on ouvre l'app ailleurs que sur le téléphone de
+Natacha pour essayer quelque chose, par exemple sur un PC après une mise à
+jour. Sans ce paramètre, chaque saisie de test serait envoyée vers la Google
+Sheet de sauvegarde, et la dernière ligne de la Sheet, censée refléter le vrai
+solde de Natacha, contiendrait les données de test. Avec `?nobackup`, l'app
+fonctionne normalement mais n'envoie rien ; le pied de page affiche « Mode test
+— sauvegarde désactivée ». Les données de Natacha, sur son téléphone, ne sont
+jamais touchées par un test, avec ou sans ce paramètre.
+
 Application web (zéro dépendance, zéro backend) pour suivre les heures
 supplémentaires de Natacha dans un pool cumulatif. Tout le code applicatif tient
 dans `index.html` ; les autres fichiers servent uniquement à rendre l'app
