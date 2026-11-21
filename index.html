@@ -378,7 +378,7 @@
     padding:.15rem 0;
     text-transform:capitalize;
   }
-  .week-day span{ color:var(--accent-add); font-weight:600; }
+  .week-day span{ color:var(--accent-add); font-weight:600; text-transform:none; } /* sinon « +5 H 30 » */
   .week-day span.loss{ color:var(--accent-take); }
   .week-day span.zero{ color:var(--ink-muted); }
   .week-total{
@@ -440,7 +440,26 @@
   .entry .meta .date{
     font-size:.85rem;
     font-weight:600;
-    text-transform:capitalize;
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:.5rem;
+  }
+  .entry .meta .date .day{ text-transform:capitalize; white-space:nowrap; }
+  /* Solde avant → après ce mouvement, recalculé à chaque affichage. */
+  .cumul{
+    font-size:.72rem;
+    font-weight:600;
+    color:var(--ink-muted);
+    white-space:nowrap;
+  }
+  .week-cumul{
+    display:flex;
+    justify-content:space-between;
+    font-size:.75rem;
+    font-weight:600;
+    color:var(--ink-muted);
+    margin-top:.3rem;
   }
   .entry .meta .note{
     font-size:.8rem;
@@ -723,7 +742,7 @@
   "use strict";
 
   // Seul endroit a modifier pour changer le numero affiche en bas de page.
-  const APP_VERSION = "1.6";
+  const APP_VERSION = "1.7";
   const STORAGE_KEY = "natacha_pool_heures_v1";
   let entries = [];
   let storageOK = true;
@@ -1171,8 +1190,33 @@
   document.getElementById("viewSemaine").addEventListener("click", () => switchHistoryView("semaine"));
   document.getElementById("viewMois").addEventListener("click", () => switchHistoryView("mois"));
 
+  // Solde avant/après chaque mouvement, dans l'ordre chronologique des
+  // journées (puis de saisie pour une même date). Jamais stocké : recalculé à
+  // chaque affichage, donc une correction se répercute sur toutes les
+  // journées suivantes.
+  function runningBalances(){
+    const ordered = [...entries].sort((a,b) => a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.createdAt - b.createdAt);
+    const map = {};
+    let total = 0;
+    ordered.forEach(e => {
+      map[e.id] = { before: total, after: total + e.heures };
+      total += e.heures;
+    });
+    return map;
+  }
+  function balanceBefore(dateISO){
+    return entries.reduce((s, e) => e.date < dateISO ? s + e.heures : s, 0);
+  }
+  function cumulLabel(before, after){
+    return `${formatHeures(before)} → ${formatHeures(after)}`;
+  }
+  function isoOf(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
   function renderJournal(){
     const list = document.getElementById("historyList");
+    const cumuls = runningBalances();
 
     if(entries.length === 0){
       list.innerHTML = `<div class="empty-state">Aucune heure enregistrée pour l'instant.<br>Ajoute le premier mouvement ci-dessus.</div>`;
@@ -1203,7 +1247,7 @@
         <div class="entry ${cssClass}${editCls}" data-id="${e.id}" role="button" tabindex="0" aria-label="Corriger le mouvement du ${formatDateRow(e.date)}">
           <div class="amount">${signedAmount}</div>
           <div class="meta">
-            <div class="date">${formatDateRow(e.date)}</div>
+            <div class="date"><span class="day">${formatDateRow(e.date)}</span><span class="cumul">${cumulLabel(cumuls[e.id].before, cumuls[e.id].after)}</span></div>
             ${noteHtml}
           </div>
           <button class="del-btn" data-id="${e.id}" aria-label="Supprimer cette entrée">✕</button>
@@ -1296,6 +1340,7 @@
           <div class="week-header">Semaine ${week}<span>${rangeLabel}</span></div>
           ${daysHtml}
           <div class="week-total">Total semaine<span class="${signClass(g.total)}">${signedHeures(g.total)}</span></div>
+          <div class="week-cumul">Solde<span>${cumulLabel(balanceBefore(isoOf(monday)), balanceBefore(isoOf(monday)) + g.total)}</span></div>
         </div>`;
     });
     list.innerHTML = html;
@@ -1322,6 +1367,7 @@
           <div class="week-header">${formatMonthLabel(g.firstDate)}<span>${dates.length} jour${dates.length>1?"s":""}</span></div>
           ${daysHtml}
           <div class="week-total">Total mois<span class="${signClass(g.total)}">${signedHeures(g.total)}</span></div>
+          <div class="week-cumul">Solde<span>${cumulLabel(balanceBefore(g.key + "-01"), balanceBefore(g.key + "-01") + g.total)}</span></div>
         </div>`;
     });
     list.innerHTML = html;

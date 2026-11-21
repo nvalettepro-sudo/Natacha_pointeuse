@@ -96,8 +96,8 @@ qui garantit qu'une mise à jour atteint le téléphone de Natacha.
 Hébergé sur GitHub Pages, branche `main`, dossier racine, `Enforce HTTPS` actif.
 URL : https://nvalettepro-sudo.github.io/Natacha_pointeuse/
 
-**État au 16/11/2026** : version 1.6 en ligne (formulaire unique), déploiement
-vérifié via l'API. App installée sur le téléphone de Natacha (Samsung S25 FE)
+**État au 21/11/2026** : version 1.7 en ligne (cumul dans l'historique),
+déploiement vérifié via l'API. App installée sur le téléphone de Natacha (Samsung S25 FE)
 depuis la v1.2.
 
 ### Le build Pages ne part pas toujours
@@ -226,7 +226,10 @@ unique qui porte leur somme, comme un solde à nouveau bancaire.
 **Vérifié en usage réel le 15/11/2026** : 9 lignes reçues depuis la mise en
 place (hors `TEST123`), la dernière le 10/11/2026, avec 13 mouvements réels
 de Natacha dedans (dates du 12/09 au 10/11, notes comme "Lits Libourne"). La
-sauvegarde fonctionne en production, pas seulement en test.
+sauvegarde fonctionne en production, pas seulement en test. **Revérifié le
+21/11/2026** : 15 lignes, dont 6 envoyées par les v1.5/1.6 (format à 16
+colonnes, pause comprise), dernière le 20/11 à 16:11 avec 16 mouvements, solde
+38 h. Natacha corrige ses journées (le 20/11 a été réenregistré 4 fois).
 
 ## Pause déjeuner (v1.5, 16/11/2026)
 
@@ -327,6 +330,31 @@ stockage identique octet pour octet, aucun envoi au chargement, totaux
 Semaine et Mois = 37 h, 12 journées identiques sous la nouvelle règle,
 avertissement exact sur le 01/10 (Annuler = rien ne change ; Continuer =
 −4h30, solde 37h30), ancienne sauvegarde v1.4 restaurée telle quelle.
+
+## Cumul dans l'historique (v1.7, 21/11/2026)
+
+Demandé par Nico, maquetté puis validé le 21/11. Chaque ligne du journal
+affiche, à droite de la date, le solde juste avant et juste après le
+mouvement (« 30 h → 32 h 30 »). Les vues Semaine et Mois ont une ligne
+« Solde » sous le total (solde au début → à la fin de la période).
+
+- **Jamais stocké** : `runningBalances()` recalcule à chaque affichage, dans
+  l'ordre chronologique des journées (puis de saisie pour une même date),
+  en partant de 0 h. Corriger une journée passée, ou en saisir une ancienne,
+  met donc à jour toutes les journées suivantes sans rien faire d'autre.
+- Le « après » de la ligne la plus récente égale toujours le solde affiché
+  en haut : contrôle visuel.
+- Purement de l'affichage : modèle de données, sauvegarde et CSV inchangés.
+- Corrige au passage un défaut d'affichage antérieur : les montants des vues
+  Semaine/Mois s'affichaient « +5 H 30 » (le `text-transform:capitalize` des
+  noms de jour s'appliquait aussi au montant).
+
+**Vérifié avant mise en ligne** sur ses 16 vraies entrées (dernière ligne de
+la Sheet, 20/11/2026 16:11) : solde 38 h, stockage identique octet pour
+octet, aucun envoi au chargement, cumuls enchaînés (chaque « avant » = le
+« après » précédent, « après − avant » = montant), soldes hebdo et mensuels
+enchaînés jusqu'à 38 h, correction d'une journée passée répercutée sur les
+suivantes, journée ancienne insérée à sa date.
 
 ## Mettre à jour l'app sans risquer les données de Natacha
 

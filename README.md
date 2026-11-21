@@ -33,8 +33,10 @@ installable sur Android et utilisable hors ligne.
   l'allonger en retire. « Pas de pause » ajoute 1h30. En demi-journée (arrivée après le
   déjeuner ou départ avant), la pause n'est pas réglable et ne compte pas comme du travail.
 - **Historique** : consultable en journal, par semaine (ISO) ou par mois, avec suppression
-  possible d'une entrée erronée. Les vues par semaine et par mois affichent l'écart net de
-  chaque journée : leur total correspond à l'évolution du pool.
+  possible d'une entrée erronée. Chaque ligne du journal indique le solde avant et après le
+  mouvement (« 30 h → 32 h 30 ») ; corriger une journée passée met à jour toutes les
+  suivantes. Les vues par semaine et par mois affichent l'écart net de chaque journée et le
+  solde au début et à la fin de la période.
 - **Correction** : toucher une journée du journal la recharge dans le formulaire, telle
   qu'elle a été saisie. Natacha ajuste les horaires et revalide — le bouton indique
   "Corriger la journée" et la ligne concernée reste surlignée. Les journées saisies avant la
